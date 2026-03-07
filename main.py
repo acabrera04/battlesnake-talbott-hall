@@ -54,6 +54,8 @@ BODY_BLOCK_STANDOFF_BONUS = 30
 LOOKAHEAD_FREEDOM_WEIGHT = 15
 LOOKAHEAD_DEAD_END_PENALTY = 200
 
+FLOOD_FILL_TRAP_PENALTY = 3000000
+
 
 # info is called when you create your Battlesnake on play.battlesnake.com
 # and controls your Battlesnake's appearance
@@ -203,6 +205,38 @@ def count_safe_followup_moves(
 
     return safe_moves
 
+def flood_fill_reachable_space(
+    start: Point,
+    occupied: typing.Set[Point],
+    width: int,
+    height: int,
+    max_cells: typing.Optional[int] = None,
+) -> int:
+    if start in occupied or not in_bounds(start, width, height):
+        return 0
+
+    visited: typing.Set[Point] = set()
+    stack: typing.List[Point] = [start]
+
+    while stack:
+        current = stack.pop()
+        if current in visited:
+            continue
+        if current in occupied:
+            continue
+        if not in_bounds(current, width, height):
+            continue
+
+        visited.add(current)
+        if max_cells is not None and len(visited) >= max_cells:
+            return len(visited)
+
+        for neighbor in moveset(current):
+            if neighbor not in visited:
+                stack.append(neighbor)
+
+    return len(visited)
+
 # move is called on every turn and returns your next move
 # Valid moves are "up", "down", "left", or "right"
 # See https://docs.battlesnake.com/api/example-move for available data
@@ -215,6 +249,7 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
     directions = ['up', 'down', 'left', 'right']
     moves = {direction: 0 for direction in directions}
     health = game_state['you']['health']
+    self_length = len(game_state['you']['body'])
     board_width = game_state['board']['width']
     board_height = game_state['board']['height']
     threat_enemy_positions, smaller_enemy_heads, all_enemy_heads = get_enemy_targets(game_state)
@@ -231,6 +266,18 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
         # hard-penalize illegal moves so direction choice uses score only
         if new_head in occupied or not in_bounds(new_head, board_width, board_height):
             moves[d] = ILLEGAL_MOVE_PENALTY
+            continue
+
+        # flood-fill lookahead: avoid entering regions that cannot fit our full body
+        region_space = flood_fill_reachable_space(
+            new_head,
+            occupied,
+            board_width,
+            board_height,
+            max_cells=self_length,
+        )
+        if region_space < self_length:
+            moves[d] -= FLOOD_FILL_TRAP_PENALTY
             continue
 
         # baseline score for legal moves
