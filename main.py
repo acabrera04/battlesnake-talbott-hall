@@ -17,7 +17,7 @@ import typing
 # Scoring weights and thresholds for move selection.
 ILLEGAL_MOVE_PENALTY = -1000000
 LEGAL_MOVE_SCORE = 1
-DANGER_ZONE_PENALTY = 100
+DANGER_ZONE_PENALTY = 1000
 KILL_ZONE_BONUS = 10
 
 STARVING_HEALTH_THRESHOLD = 25
@@ -36,6 +36,9 @@ ADJACENT_FOOD_BONUS = 50
 TAIL_CHASE_HEALTH_THRESHOLD = 50
 TAIL_CHASE_RANGE = 10
 TAIL_CHASE_WEIGHT = 3
+
+ENEMY_AVOIDANCE_RANGE = 3
+ENEMY_AVOIDANCE_WEIGHT = 4
 
 
 # info is called when you create your Battlesnake on play.battlesnake.com
@@ -142,6 +145,19 @@ def manhattan_distance(
 ) -> int:
     return min(abs(point[0] - f[0]) + abs(point[1] - f[1]) for f in food)
 
+def get_enemy_body_positions(game_state: typing.Dict) -> typing.List[typing.Tuple[int, int]]:
+    enemy_positions: typing.List[typing.Tuple[int, int]] = []
+    you_id = game_state['you']['id']
+
+    for snake in game_state['board']['snakes']:
+        if snake['id'] == you_id:
+            continue
+
+        for segment in snake['body']:
+            enemy_positions.append(text_to_tuple(segment))
+
+    return enemy_positions
+
 # move is called on every turn and returns your next move
 # Valid moves are "up", "down", "left", or "right"
 # See https://docs.battlesnake.com/api/example-move for available data
@@ -154,6 +170,7 @@ def move(game_state: typing.Dict) -> typing.Dict:
     directions = ['up', 'down', 'left', 'right']
     moves = {direction: 0 for direction in directions}
     health = game_state['you']['health']
+    enemy_positions = get_enemy_body_positions(game_state)
 
     for d in directions:
         # calculate new head position based on move direction
@@ -174,6 +191,13 @@ def move(game_state: typing.Dict) -> typing.Dict:
         # mildly favor attack opportunities against smaller snakes
         if new_head in can_kill:
             moves[d] += KILL_ZONE_BONUS
+
+        # apply a small penalty when moving near enemy snakes
+        if enemy_positions:
+            nearest_enemy_distance = manhattan_distance(new_head, enemy_positions)
+            if nearest_enemy_distance <= ENEMY_AVOIDANCE_RANGE:
+                proximity_penalty = (ENEMY_AVOIDANCE_RANGE + 1 - nearest_enemy_distance) * ENEMY_AVOIDANCE_WEIGHT
+                moves[d] -= proximity_penalty
 
         # prefer moves that get closer to the nearest food
         if food:
