@@ -56,7 +56,12 @@ def moveset(p):
 def in_bounds(p, width, height):
     return 0 <= p[0] < width and 0 <= p[1] < height
 
-def build_board(game_state: typing.Dict) -> typing.List[typing.List[str]]:
+def build_board(game_state: typing.Dict) -> typing.Tuple[
+    typing.List[typing.Tuple[int, int]],
+    typing.Set[typing.Tuple[int, int]],
+    typing.Set[typing.Tuple[int, int]],
+    typing.Set[typing.Tuple[int, int]],
+]:
     board_width = game_state['board']['width']
     board_height = game_state['board']['height']
 
@@ -105,6 +110,13 @@ def next_from_dir(head, direction):
         return (head[0] - 1, head[1])
     elif direction == "right":
         return (head[0] + 1, head[1])
+    raise ValueError(f"invalid direction: {direction}")
+
+def manhattan_distance(
+    point: typing.Tuple[int, int],
+    food: typing.List[typing.Tuple[int, int]],
+) -> int:
+    return min(abs(point[0] - f[0]) + abs(point[1] - f[1]) for f in food)
 
 # move is called on every turn and returns your next move
 # Valid moves are "up", "down", "left", or "right"
@@ -122,13 +134,32 @@ def move(game_state: typing.Dict) -> typing.Dict:
         # calculate new head position based on move direction
         new_head = next_from_dir(text_to_tuple(game_state['you']['head']), d)
 
-        # check for immediate death and skip if move would result in death
+        # hard-penalize illegal moves so direction choice uses score only
         if new_head in occupied or not in_bounds(new_head, game_state['board']['width'], game_state['board']['height']):
+            moves[d] = -1000000
             continue
 
+        # baseline score for legal moves
+        moves[d] += 1
 
-    # execute move with highest score, or default to "up" if all moves are bad
-    next_move = max(moves, key=moves.get)
+        # avoid risky head-to-head zones against equal/larger snakes
+        if new_head in can_die:
+            moves[d] -= 100
+
+        # mildly favor attack opportunities against smaller snakes
+        if new_head in can_kill:
+            moves[d] += 10
+
+        # prefer moves that get closer to the nearest food
+        if food:
+            nearest_food_distance = manhattan_distance(new_head, food)
+            moves[d] -= nearest_food_distance
+
+
+    # choose among the highest-scoring directions
+    best_score = max(moves.values())
+    best_moves = [d for d, score in moves.items() if score == best_score]
+    next_move = random.choice(best_moves)
     print(f"MOVE {game_state['turn']}: {next_move}")
     return {"move": next_move}
 
