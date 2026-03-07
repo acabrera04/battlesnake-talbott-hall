@@ -96,6 +96,16 @@ def build_board(game_state: typing.Dict) -> typing.List[typing.List[str]]:
 
     return food, occupied, can_die, can_kill
 
+def next_from_dir(head, direction):
+    if direction == "up":
+        return (head[0], head[1] + 1)
+    elif direction == "down":
+        return (head[0], head[1] - 1)
+    elif direction == "left":
+        return (head[0] - 1, head[1])
+    elif direction == "right":
+        return (head[0] + 1, head[1])
+
 # move is called on every turn and returns your next move
 # Valid moves are "up", "down", "left", or "right"
 # See https://docs.battlesnake.com/api/example-move for available data
@@ -104,50 +114,21 @@ def move(game_state: typing.Dict) -> typing.Dict:
     # load board state
     food, occupied, can_die, can_kill = build_board(game_state)
 
-    is_move_safe = {"up": True, "down": True, "left": True, "right": True}
+    # init move scores
+    directions = ['up', 'down', 'left', 'right']
+    moves = {direction: 0 for direction in directions}
 
-    # We've included code to prevent your Battlesnake from moving backwards
-    my_head = game_state["you"]["body"][0]  # Coordinates of your head
-    my_neck = game_state["you"]["body"][1]  # Coordinates of your "neck"
+    for d in directions:
+        # calculate new head position based on move direction
+        new_head = next_from_dir(text_to_tuple(game_state['you']['head']), d)
 
-    if my_neck["x"] < my_head["x"]:  # Neck is left of head, don't move left
-        is_move_safe["left"] = False
+        # check for immediate death and skip if move would result in death
+        if new_head in occupied or not in_bounds(new_head, game_state['board']['width'], game_state['board']['height']):
+            continue
 
-    elif my_neck["x"] > my_head["x"]:  # Neck is right of head, don't move right
-        is_move_safe["right"] = False
 
-    elif my_neck["y"] < my_head["y"]:  # Neck is below head, don't move down
-        is_move_safe["down"] = False
-
-    elif my_neck["y"] > my_head["y"]:  # Neck is above head, don't move up
-        is_move_safe["up"] = False
-
-    # TODO: Step 1 - Prevent your Battlesnake from moving out of bounds
-    # board_width = game_state['board']['width']
-    # board_height = game_state['board']['height']
-
-    # TODO: Step 2 - Prevent your Battlesnake from colliding with itself
-    # my_body = game_state['you']['body']
-
-    # TODO: Step 3 - Prevent your Battlesnake from colliding with other Battlesnakes
-    # opponents = game_state['board']['snakes']
-
-    # Are there any safe moves left?
-    safe_moves = []
-    for move, isSafe in is_move_safe.items():
-        if isSafe:
-            safe_moves.append(move)
-
-    if len(safe_moves) == 0:
-        print(f"MOVE {game_state['turn']}: No safe moves detected! Moving down")
-        return {"move": "down"}
-
-    # Choose a random move from the safe ones
-    next_move = random.choice(safe_moves)
-
-    # TODO: Step 4 - Move towards food instead of random, to regain health and survive longer
-    # food = game_state['board']['food']
-
+    # execute move with highest score, or default to "up" if all moves are bad
+    next_move = max(moves, key=moves.get)
     print(f"MOVE {game_state['turn']}: {next_move}")
     return {"move": next_move}
 
