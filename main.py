@@ -60,6 +60,12 @@ CENTER_PREFERENCE_WEIGHT = 4
 
 BODY_PROXIMITY_PENALTY = 12
 
+OVERGROWN_LENGTH_THRESHOLD = 20
+OVERGROWN_FOOD_AVOID_WEIGHT = 8
+OVERGROWN_ADJACENT_FOOD_PENALTY = 120
+OVERGROWN_AVOID_DISABLE_HEALTH = 50
+MAX_HEALTH = 100
+
 
 # info is called when you create your Battlesnake on play.battlesnake.com
 # and controls your Battlesnake's appearance
@@ -354,19 +360,28 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
         if food:
             # use current health to determine if we want food or not (minimize length)
             nearest_food_distance = manhattan_distance(new_head, food)
-
             if health < STARVING_HEALTH_THRESHOLD:
-                moves[d] += STARVING_FOOD_WEIGHT * (health - nearest_food_distance)
+                food_weight = STARVING_FOOD_WEIGHT
             elif health < LOW_HEALTH_THRESHOLD:
-                moves[d] += LOW_FOOD_WEIGHT * (health - nearest_food_distance)
+                food_weight = LOW_FOOD_WEIGHT
             elif health < MID_HEALTH_THRESHOLD:
-                moves[d] += MID_FOOD_WEIGHT * (health - nearest_food_distance)
+                food_weight = MID_FOOD_WEIGHT
             else:
-                moves[d] += HIGH_FOOD_WEIGHT * (health - nearest_food_distance)
+                food_weight = HIGH_FOOD_WEIGHT
 
-            # if we are adjacent to food & slightly low on health, might as well get it
-            if nearest_food_distance == ADJACENT_FOOD_DISTANCE and health < ADJACENT_FOOD_HEALTH_THRESHOLD:
-                moves[d] += ADJACENT_FOOD_BONUS
+            excess_length = max(0, self_length - OVERGROWN_LENGTH_THRESHOLD)
+            hunger_safe_ratio = max(
+                0.0,
+                (health - OVERGROWN_AVOID_DISABLE_HEALTH) / (MAX_HEALTH - OVERGROWN_AVOID_DISABLE_HEALTH),
+            )
+
+            # avoid growth-inducing food when we're already long and healthy to reduce risk of self-trapping
+            # this is a linear penalty based on how much we're over the length threshold and how close we are to starving
+            effective_food_weight = max(
+                0.0,
+                food_weight - (OVERGROWN_FOOD_AVOID_WEIGHT * excess_length * hunger_safe_ratio),
+            )
+            moves[d] += int(effective_food_weight * (health - nearest_food_distance))
 
         # if nothing is happening just chase tail (encourage circular movement to stay alive)
         if health > TAIL_CHASE_HEALTH_THRESHOLD:
