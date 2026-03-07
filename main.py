@@ -51,6 +51,9 @@ SMALLER_HEAD_TO_HEAD_PENALTY = 1000
 BODY_BLOCK_STANDOFF_DISTANCE = 2
 BODY_BLOCK_STANDOFF_BONUS = 30
 
+LOOKAHEAD_FREEDOM_WEIGHT = 15
+LOOKAHEAD_DEAD_END_PENALTY = 200
+
 
 # info is called when you create your Battlesnake on play.battlesnake.com
 # and controls your Battlesnake's appearance
@@ -177,6 +180,29 @@ def get_enemy_targets(game_state: SnakeApiObject) -> typing.Tuple[typing.List[Po
 
     return threat_positions, smaller_heads, all_enemy_heads
 
+def count_safe_followup_moves(
+    head: Point,
+    occupied: typing.Set[Point],
+    can_die: typing.Set[Point],
+    enemy_head_collision_squares: typing.Set[Point],
+    width: int,
+    height: int,
+) -> int:
+    safe_moves = 0
+
+    for next_square in moveset(head):
+        if not in_bounds(next_square, width, height):
+            continue
+        if next_square in occupied:
+            continue
+        if next_square in can_die:
+            continue
+        if next_square in enemy_head_collision_squares:
+            continue
+        safe_moves += 1
+
+    return safe_moves
+
 # move is called on every turn and returns your next move
 # Valid moves are "up", "down", "left", or "right"
 # See https://docs.battlesnake.com/api/example-move for available data
@@ -237,6 +263,19 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
             elif 1 < nearest_smaller_head_distance <= AGGRESSION_RANGE:
                 aggression_bonus = (AGGRESSION_RANGE + 1 - nearest_smaller_head_distance) * AGGRESSION_CHASE_WEIGHT
                 moves[d] += aggression_bonus
+
+        # one-step lookahead: prefer moves that keep future options open
+        followup_options = count_safe_followup_moves(
+            new_head,
+            occupied,
+            can_die,
+            enemy_head_collision_squares,
+            board_width,
+            board_height,
+        )
+        moves[d] += followup_options * LOOKAHEAD_FREEDOM_WEIGHT
+        if followup_options == 0:
+            moves[d] -= LOOKAHEAD_DEAD_END_PENALTY
 
         # prefer moves that get closer to the nearest food
         if food:
