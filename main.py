@@ -22,7 +22,6 @@ SnakeApiObject = typing.Dict[str, typing.Any]
 ILLEGAL_MOVE_PENALTY = -1000000
 LEGAL_MOVE_SCORE = 1
 DANGER_ZONE_PENALTY = 1000
-KILL_ZONE_BONUS = 10
 
 STARVING_HEALTH_THRESHOLD = 25
 LOW_HEALTH_THRESHOLD = 50
@@ -43,6 +42,14 @@ TAIL_CHASE_WEIGHT = 3
 
 ENEMY_AVOIDANCE_RANGE = 3
 ENEMY_AVOIDANCE_WEIGHT = 4
+
+AGGRESSION_RANGE = 4
+AGGRESSION_CHASE_WEIGHT = 6
+
+HEAD_TO_HEAD_PENALTY = 1500
+SMALLER_HEAD_TO_HEAD_PENALTY = 1000
+BODY_BLOCK_STANDOFF_DISTANCE = 2
+BODY_BLOCK_STANDOFF_BONUS = 30
 
 
 # info is called when you create your Battlesnake on play.battlesnake.com
@@ -149,18 +156,26 @@ def manhattan_distance(
 ) -> int:
     return min(abs(point[0] - f[0]) + abs(point[1] - f[1]) for f in food)
 
-def get_enemy_body_positions(game_state: SnakeApiObject) -> typing.List[Point]:
-    enemy_positions: typing.List[Point] = []
+def get_enemy_targets(game_state: SnakeApiObject) -> typing.Tuple[typing.List[Point], typing.List[Point], typing.List[Point]]:
+    threat_positions: typing.List[Point] = []
+    smaller_heads: typing.List[Point] = []
+    all_enemy_heads: typing.List[Point] = []
     you_id = game_state['you']['id']
+    self_length = len(game_state['you']['body'])
 
     for snake in game_state['board']['snakes']:
         if snake['id'] == you_id:
             continue
+        enemy_head = text_to_tuple(snake['head'])
+        all_enemy_heads.append(enemy_head)
 
-        for segment in snake['body']:
-            enemy_positions.append(text_to_tuple(segment))
+        if len(snake['body']) >= self_length:
+            for segment in snake['body']:
+                threat_positions.append(text_to_tuple(segment))
+        else:
+            smaller_heads.append(enemy_head)
 
-    return enemy_positions
+    return threat_positions, smaller_heads, all_enemy_heads
 
 # move is called on every turn and returns your next move
 # Valid moves are "up", "down", "left", or "right"
@@ -174,14 +189,21 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
     directions = ['up', 'down', 'left', 'right']
     moves = {direction: 0 for direction in directions}
     health = game_state['you']['health']
-    enemy_positions = get_enemy_body_positions(game_state)
+    board_width = game_state['board']['width']
+    board_height = game_state['board']['height']
+    threat_enemy_positions, smaller_enemy_heads, all_enemy_heads = get_enemy_targets(game_state)
+    enemy_head_collision_squares: typing.Set[Point] = set()
+    for enemy_head in all_enemy_heads:
+        for square in moveset(enemy_head):
+            if in_bounds(square, board_width, board_height):
+                enemy_head_collision_squares.add(square)
 
     for d in directions:
         # calculate new head position based on move direction
         new_head = next_from_dir(text_to_tuple(game_state['you']['head']), d)
 
         # hard-penalize illegal moves so direction choice uses score only
-        if new_head in occupied or not in_bounds(new_head, game_state['board']['width'], game_state['board']['height']):
+        if new_head in occupied or not in_bounds(new_head, board_width, board_height):
             moves[d] = ILLEGAL_MOVE_PENALTY
             continue
 
@@ -192,16 +214,29 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
         if new_head in can_die:
             moves[d] -= DANGER_ZONE_PENALTY
 
-        # mildly favor attack opportunities against smaller snakes
+        # avoid direct head-to-head squares, even against smaller snakes
+        if new_head in enemy_head_collision_squares:
+            moves[d] -= HEAD_TO_HEAD_PENALTY
+
+        # can_kill is the smaller-snake head contest zone; avoid it to bait body collisions
         if new_head in can_kill:
-            moves[d] += KILL_ZONE_BONUS
+            moves[d] -= SMALLER_HEAD_TO_HEAD_PENALTY
 
         # apply a small penalty when moving near enemy snakes
-        if enemy_positions:
-            nearest_enemy_distance = manhattan_distance(new_head, enemy_positions)
+        if threat_enemy_positions:
+            nearest_enemy_distance = manhattan_distance(new_head, threat_enemy_positions)
             if nearest_enemy_distance <= ENEMY_AVOIDANCE_RANGE:
                 proximity_penalty = (ENEMY_AVOIDANCE_RANGE + 1 - nearest_enemy_distance) * ENEMY_AVOIDANCE_WEIGHT
                 moves[d] -= proximity_penalty
+
+        # pressure smaller snakes while maintaining a one-tile buffer from head-to-head collisions
+        if smaller_enemy_heads:
+            nearest_smaller_head_distance = manhattan_distance(new_head, smaller_enemy_heads)
+            if nearest_smaller_head_distance == BODY_BLOCK_STANDOFF_DISTANCE:
+                moves[d] += BODY_BLOCK_STANDOFF_BONUS
+            elif 1 < nearest_smaller_head_distance <= AGGRESSION_RANGE:
+                aggression_bonus = (AGGRESSION_RANGE + 1 - nearest_smaller_head_distance) * AGGRESSION_CHASE_WEIGHT
+                moves[d] += aggression_bonus
 
         # prefer moves that get closer to the nearest food
         if food:
