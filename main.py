@@ -56,6 +56,8 @@ LOOKAHEAD_DEAD_END_PENALTY = 200
 
 FLOOD_FILL_TRAP_PENALTY = 3000000
 
+CENTER_PREFERENCE_WEIGHT = 4
+
 
 # info is called when you create your Battlesnake on play.battlesnake.com
 # and controls your Battlesnake's appearance
@@ -237,6 +239,16 @@ def flood_fill_reachable_space(
 
     return len(visited)
 
+def distance_to_board_center(point: Point, width: int, height: int) -> int:
+    center_x_candidates = {(width - 1) // 2, width // 2}
+    center_y_candidates = {(height - 1) // 2, height // 2}
+
+    return min(
+        abs(point[0] - center_x) + abs(point[1] - center_y)
+        for center_x in center_x_candidates
+        for center_y in center_y_candidates
+    )
+
 # move is called on every turn and returns your next move
 # Valid moves are "up", "down", "left", or "right"
 # See https://docs.battlesnake.com/api/example-move for available data
@@ -282,6 +294,10 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
 
         # baseline score for legal moves
         moves[d] += LEGAL_MOVE_SCORE
+
+        # prefer staying closer to the center to reduce corner-trap risk
+        center_distance = distance_to_board_center(new_head, board_width, board_height)
+        moves[d] -= center_distance * CENTER_PREFERENCE_WEIGHT
 
         # avoid risky head-to-head zones against equal/larger snakes
         if new_head in can_die:
