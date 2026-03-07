@@ -92,17 +92,17 @@ def build_board(game_state: typing.Dict) -> typing.List[typing.List[str]]:
                     else:
                         can_kill.add(m)
 
-    return occupied, can_die, can_kill
+    food = [text_to_tuple(food) for food in game_state['board']['food']]
 
+    return food, occupied, can_die, can_kill
 
 # move is called on every turn and returns your next move
 # Valid moves are "up", "down", "left", or "right"
 # See https://docs.battlesnake.com/api/example-move for available data
 def move(game_state: typing.Dict) -> typing.Dict:
 
-
     # load board state
-    occupied, can_die, can_kill = build_board(game_state)
+    food, occupied, can_die, can_kill = build_board(game_state)
 
     is_move_safe = {"up": True, "down": True, "left": True, "right": True}
 
