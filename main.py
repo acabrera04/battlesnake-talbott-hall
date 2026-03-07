@@ -152,8 +152,28 @@ def move(game_state: typing.Dict) -> typing.Dict:
 
         # prefer moves that get closer to the nearest food
         if food:
+            # use current health to determine if we want food or not (minimize length)
             nearest_food_distance = manhattan_distance(new_head, food)
-            moves[d] -= nearest_food_distance
+
+            health = game_state['you']['health']
+
+            if health < 25: 
+                moves[d] += 5 * (health - nearest_food_distance)
+            elif health < 50:
+                moves[d] += 2 * (health - nearest_food_distance)
+            elif health < 75:
+                moves[d] += 1 * (health - nearest_food_distance)
+            else:
+                moves[d] += 0 * (health - nearest_food_distance)
+
+            # if we are adjacent to food & slightly low on health, might as well get it
+            if nearest_food_distance == 1 and health < 50:
+                moves[d] += 50
+
+        # if nothing is happening just chase tail (encourage circular movement to stay alive)
+        if health > 50:
+            tail_distance = manhattan_distance(new_head, [text_to_tuple(game_state['you']['body'][-1])])
+            moves[d] += max(0, 10 - tail_distance) * 3
 
 
     # choose among the highest-scoring directions
