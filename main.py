@@ -14,6 +14,10 @@ import random
 import typing
 
 
+Point = typing.Tuple[int, int]
+SnakeApiObject = typing.Dict[str, typing.Any]
+
+
 # Scoring weights and thresholds for move selection.
 ILLEGAL_MOVE_PENALTY = -1000000
 LEGAL_MOVE_SCORE = 1
@@ -44,7 +48,7 @@ ENEMY_AVOIDANCE_WEIGHT = 4
 # info is called when you create your Battlesnake on play.battlesnake.com
 # and controls your Battlesnake's appearance
 # TIP: If you open your Battlesnake URL in a browser you should see this data
-def info() -> typing.Dict:
+def info() -> typing.Dict[str, str]:
     print("INFO")
 
     return {
@@ -57,22 +61,22 @@ def info() -> typing.Dict:
 
 
 # start is called when your Battlesnake begins a game
-def start(game_state: typing.Dict):
+def start(game_state: SnakeApiObject) -> None:
     print("GAME START")
 
 
 # end is called when your Battlesnake finishes a game
-def end(game_state: typing.Dict):
+def end(game_state: SnakeApiObject) -> None:
     print("GAME OVER\n")
 
-def text_to_tuple(p):
+def text_to_tuple(p: typing.Dict[str, int]) -> Point:
     return (p['x'], p['y'])
 
-def tuple_to_text(p):
+def tuple_to_text(p: Point) -> typing.Dict[str, int]:
     return {'x': p[0], 'y': p[1]}
 
 # returns tuples of the 4 adjacent squares to p
-def moveset(p):
+def moveset(p: Point) -> typing.List[Point]:
     return [
         (p[0]+1, p[1]),
         (p[0]-1, p[1]),
@@ -80,14 +84,14 @@ def moveset(p):
         (p[0], p[1]-1),
     ]
 
-def in_bounds(p, width, height):
+def in_bounds(p: Point, width: int, height: int) -> bool:
     return 0 <= p[0] < width and 0 <= p[1] < height
 
-def build_board(game_state: typing.Dict) -> typing.Tuple[
-    typing.List[typing.Tuple[int, int]],
-    typing.Set[typing.Tuple[int, int]],
-    typing.Set[typing.Tuple[int, int]],
-    typing.Set[typing.Tuple[int, int]],
+def build_board(game_state: SnakeApiObject) -> typing.Tuple[
+    typing.List[Point],
+    typing.Set[Point],
+    typing.Set[Point],
+    typing.Set[Point],
 ]:
     board_width = game_state['board']['width']
     board_height = game_state['board']['height']
@@ -95,9 +99,9 @@ def build_board(game_state: typing.Dict) -> typing.Tuple[
     self_length = len(game_state['you']['body'])
     self_head = text_to_tuple(game_state['you']['head'])
 
-    can_die = set()
-    can_kill = set()
-    occupied = set()
+    can_die: typing.Set[Point] = set()
+    can_kill: typing.Set[Point] = set()
+    occupied: typing.Set[Point] = set()
 
     for snake in game_state['board']['snakes']:
 
@@ -128,7 +132,7 @@ def build_board(game_state: typing.Dict) -> typing.Tuple[
 
     return food, occupied, can_die, can_kill
 
-def next_from_dir(head, direction):
+def next_from_dir(head: Point, direction: str) -> Point:
     if direction == "up":
         return (head[0], head[1] + 1)
     elif direction == "down":
@@ -140,13 +144,13 @@ def next_from_dir(head, direction):
     raise ValueError(f"invalid direction: {direction}")
 
 def manhattan_distance(
-    point: typing.Tuple[int, int],
-    food: typing.List[typing.Tuple[int, int]],
+    point: Point,
+    food: typing.List[Point],
 ) -> int:
     return min(abs(point[0] - f[0]) + abs(point[1] - f[1]) for f in food)
 
-def get_enemy_body_positions(game_state: typing.Dict) -> typing.List[typing.Tuple[int, int]]:
-    enemy_positions: typing.List[typing.Tuple[int, int]] = []
+def get_enemy_body_positions(game_state: SnakeApiObject) -> typing.List[Point]:
+    enemy_positions: typing.List[Point] = []
     you_id = game_state['you']['id']
 
     for snake in game_state['board']['snakes']:
@@ -161,7 +165,7 @@ def get_enemy_body_positions(game_state: typing.Dict) -> typing.List[typing.Tupl
 # move is called on every turn and returns your next move
 # Valid moves are "up", "down", "left", or "right"
 # See https://docs.battlesnake.com/api/example-move for available data
-def move(game_state: typing.Dict) -> typing.Dict:
+def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
 
     # load board state
     food, occupied, can_die, can_kill = build_board(game_state)
