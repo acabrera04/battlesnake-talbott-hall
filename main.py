@@ -27,7 +27,7 @@ STARVING_HEALTH_THRESHOLD = 25
 LOW_HEALTH_THRESHOLD = 50
 MID_HEALTH_THRESHOLD = 75
 
-STARVING_FOOD_WEIGHT = 5
+STARVING_FOOD_WEIGHT = 10
 LOW_FOOD_WEIGHT = 2
 MID_FOOD_WEIGHT = 1
 HIGH_FOOD_WEIGHT = 0
@@ -57,6 +57,8 @@ LOOKAHEAD_DEAD_END_PENALTY = 200
 FLOOD_FILL_TRAP_PENALTY = 3000000
 
 CENTER_PREFERENCE_WEIGHT = 4
+
+BODY_PROXIMITY_PENALTY = 12
 
 
 # info is called when you create your Battlesnake on play.battlesnake.com
@@ -132,6 +134,10 @@ def build_board(game_state: SnakeApiObject) -> typing.Tuple[
         else: # determine death and murder zones for enemy snakes based on length
             enemy_len = len(snake['body'])
             enemy_head = text_to_tuple(snake['head'])
+
+            # enemy body segments are occupied and should be avoided immediately
+            for segment in snake['body']:
+                occupied.add(text_to_tuple(segment))
 
             for m in moveset(enemy_head):
                 if in_bounds(m, board_width, board_height):
@@ -298,6 +304,10 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
         # prefer staying closer to the center to reduce corner-trap risk
         center_distance = distance_to_board_center(new_head, board_width, board_height)
         moves[d] -= center_distance * CENTER_PREFERENCE_WEIGHT
+
+        # prefer moves with some breathing room from surrounding bodies/walls
+        occupied_neighbors = sum(1 for neighbor in moveset(new_head) if neighbor in occupied)
+        moves[d] -= occupied_neighbors * BODY_PROXIMITY_PENALTY
 
         # avoid risky head-to-head zones against equal/larger snakes
         if new_head in can_die:
