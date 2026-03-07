@@ -16,6 +16,7 @@ import typing
 
 Point = typing.Tuple[int, int]
 SnakeApiObject = typing.Dict[str, typing.Any]
+EnemyInfo = typing.Tuple[Point, int]
 
 
 # Scoring weights and thresholds for move selection.
@@ -65,6 +66,9 @@ OVERGROWN_FOOD_AVOID_WEIGHT = 8
 OVERGROWN_ADJACENT_FOOD_PENALTY = 120
 OVERGROWN_AVOID_DISABLE_HEALTH = 50
 MAX_HEALTH = 100
+
+ENEMY_TRAP_MOVE_BONUS = 40
+ENEMY_TRAP_ALL_MOVES_BONUS = 120
 
 
 # info is called when you create your Battlesnake on play.battlesnake.com
@@ -196,6 +200,17 @@ def get_enemy_targets(game_state: SnakeApiObject) -> typing.Tuple[typing.List[Po
 
     return threat_positions, smaller_heads, all_enemy_heads
 
+def get_enemy_head_lengths(game_state: SnakeApiObject) -> typing.List[EnemyInfo]:
+    enemy_info: typing.List[EnemyInfo] = []
+    you_id = game_state['you']['id']
+
+    for snake in game_state['board']['snakes']:
+        if snake['id'] == you_id:
+            continue
+        enemy_info.append((text_to_tuple(snake['head']), len(snake['body'])))
+
+    return enemy_info
+
 def count_safe_followup_moves(
     head: Point,
     occupied: typing.Set[Point],
@@ -261,6 +276,44 @@ def distance_to_board_center(point: Point, width: int, height: int) -> int:
         for center_y in center_y_candidates
     )
 
+def enemy_trap_bonus_for_move(
+    new_head: Point,
+    enemy_info: typing.List[EnemyInfo],
+    occupied: typing.Set[Point],
+    width: int,
+    height: int,
+) -> int:
+    simulated_occupied = set(occupied)
+    simulated_occupied.add(new_head)
+    total_bonus = 0
+
+    for enemy_head, enemy_length in enemy_info:
+        legal_enemy_moves = 0
+        trapped_enemy_moves = 0
+
+        for enemy_next in moveset(enemy_head):
+            if not in_bounds(enemy_next, width, height):
+                continue
+            if enemy_next in simulated_occupied:
+                continue
+
+            legal_enemy_moves += 1
+            enemy_space = flood_fill_reachable_space(
+                enemy_next,
+                simulated_occupied,
+                width,
+                height,
+                max_cells=enemy_length,
+            )
+            if enemy_space < enemy_length:
+                trapped_enemy_moves += 1
+
+        total_bonus += trapped_enemy_moves * ENEMY_TRAP_MOVE_BONUS
+        if legal_enemy_moves > 0 and trapped_enemy_moves == legal_enemy_moves:
+            total_bonus += ENEMY_TRAP_ALL_MOVES_BONUS
+
+    return total_bonus
+
 # move is called on every turn and returns your next move
 # Valid moves are "up", "down", "left", or "right"
 # See https://docs.battlesnake.com/api/example-move for available data
@@ -277,6 +330,7 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
     board_width = game_state['board']['width']
     board_height = game_state['board']['height']
     threat_enemy_positions, smaller_enemy_heads, all_enemy_heads = get_enemy_targets(game_state)
+    enemy_info = get_enemy_head_lengths(game_state)
     enemy_head_collision_squares: typing.Set[Point] = set()
     for enemy_head in all_enemy_heads:
         for square in moveset(enemy_head):
@@ -306,6 +360,9 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
 
         # baseline score for legal moves
         moves[d] += LEGAL_MOVE_SCORE
+
+        # bonus for moves that trap enemy options into too-small regions
+        moves[d] += enemy_trap_bonus_for_move(new_head, enemy_info, occupied, board_width, board_height)
 
         # prefer staying closer to the center to reduce corner-trap risk
         center_distance = distance_to_board_center(new_head, board_width, board_height)
