@@ -38,11 +38,71 @@ def start(game_state: typing.Dict):
 def end(game_state: typing.Dict):
     print("GAME OVER\n")
 
+def text_to_tuple(p):
+    return (p['x'], p['y'])
+
+def tuple_to_text(p):
+    return {'x': p[0], 'y': p[1]}
+
+# returns tuples of the 4 adjacent squares to p
+def moveset(p):
+    return [
+        (p[0]+1, p[1]),
+        (p[0]-1, p[1]),
+        (p[0], p[1]+1),
+        (p[0], p[1]-1),
+    ]
+
+def in_bounds(p, width, height):
+    return 0 <= p[0] < width and 0 <= p[1] < height
+
+def build_board(game_state: typing.Dict) -> typing.List[typing.List[str]]:
+    board_width = game_state['board']['width']
+    board_height = game_state['board']['height']
+
+    self_length = len(game_state['you']['body'])
+    self_head = text_to_tuple(game_state['you']['head'])
+
+    can_die = set()
+    can_kill = set()
+    occupied = set()
+
+    for snake in game_state['board']['snakes']:
+
+        if snake['id'] == game_state['you']['id']:
+            # our tail is occupied if we just ate food, otherwise it's not since it will move forward next turn
+            eaten = len(snake['body']) > 2 and text_to_tuple(snake['body'][-1]) == text_to_tuple(snake['body'][-2]) 
+
+            # populate body based on whether we just ate or not
+            for i, segment in enumerate(snake['body']): 
+                if i == len(snake['body']) - 1 and not eaten: # skip tail if we didn't just eat
+                    continue
+                occupied.add(text_to_tuple(segment))
+
+        else: # determine death and murder zones for enemy snakes based on length
+            enemy_len = len(snake['body'])
+            enemy_head = text_to_tuple(snake['head'])
+
+            for m in moveset(enemy_head):
+                if in_bounds(m, board_width, board_height):
+                    if m in occupied: # ignore our own head
+                        continue
+                    elif enemy_len >= self_length:
+                        can_die.add(m)
+                    else:
+                        can_kill.add(m)
+
+    return occupied, can_die, can_kill
+
 
 # move is called on every turn and returns your next move
 # Valid moves are "up", "down", "left", or "right"
 # See https://docs.battlesnake.com/api/example-move for available data
 def move(game_state: typing.Dict) -> typing.Dict:
+
+
+    # load board state
+    occupied, can_die, can_kill = build_board(game_state)
 
     is_move_safe = {"up": True, "down": True, "left": True, "right": True}
 
