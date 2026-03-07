@@ -14,6 +14,30 @@ import random
 import typing
 
 
+# Scoring weights and thresholds for move selection.
+ILLEGAL_MOVE_PENALTY = -1000000
+LEGAL_MOVE_SCORE = 1
+DANGER_ZONE_PENALTY = 100
+KILL_ZONE_BONUS = 10
+
+STARVING_HEALTH_THRESHOLD = 25
+LOW_HEALTH_THRESHOLD = 50
+MID_HEALTH_THRESHOLD = 75
+
+STARVING_FOOD_WEIGHT = 5
+LOW_FOOD_WEIGHT = 2
+MID_FOOD_WEIGHT = 1
+HIGH_FOOD_WEIGHT = 0
+
+ADJACENT_FOOD_DISTANCE = 1
+ADJACENT_FOOD_HEALTH_THRESHOLD = 50
+ADJACENT_FOOD_BONUS = 50
+
+TAIL_CHASE_HEALTH_THRESHOLD = 50
+TAIL_CHASE_RANGE = 10
+TAIL_CHASE_WEIGHT = 3
+
+
 # info is called when you create your Battlesnake on play.battlesnake.com
 # and controls your Battlesnake's appearance
 # TIP: If you open your Battlesnake URL in a browser you should see this data
@@ -129,6 +153,7 @@ def move(game_state: typing.Dict) -> typing.Dict:
     # init move scores
     directions = ['up', 'down', 'left', 'right']
     moves = {direction: 0 for direction in directions}
+    health = game_state['you']['health']
 
     for d in directions:
         # calculate new head position based on move direction
@@ -136,44 +161,42 @@ def move(game_state: typing.Dict) -> typing.Dict:
 
         # hard-penalize illegal moves so direction choice uses score only
         if new_head in occupied or not in_bounds(new_head, game_state['board']['width'], game_state['board']['height']):
-            moves[d] = -1000000
+            moves[d] = ILLEGAL_MOVE_PENALTY
             continue
 
         # baseline score for legal moves
-        moves[d] += 1
+        moves[d] += LEGAL_MOVE_SCORE
 
         # avoid risky head-to-head zones against equal/larger snakes
         if new_head in can_die:
-            moves[d] -= 100
+            moves[d] -= DANGER_ZONE_PENALTY
 
         # mildly favor attack opportunities against smaller snakes
         if new_head in can_kill:
-            moves[d] += 10
+            moves[d] += KILL_ZONE_BONUS
 
         # prefer moves that get closer to the nearest food
         if food:
             # use current health to determine if we want food or not (minimize length)
             nearest_food_distance = manhattan_distance(new_head, food)
 
-            health = game_state['you']['health']
-
-            if health < 25: 
-                moves[d] += 5 * (health - nearest_food_distance)
-            elif health < 50:
-                moves[d] += 2 * (health - nearest_food_distance)
-            elif health < 75:
-                moves[d] += 1 * (health - nearest_food_distance)
+            if health < STARVING_HEALTH_THRESHOLD:
+                moves[d] += STARVING_FOOD_WEIGHT * (health - nearest_food_distance)
+            elif health < LOW_HEALTH_THRESHOLD:
+                moves[d] += LOW_FOOD_WEIGHT * (health - nearest_food_distance)
+            elif health < MID_HEALTH_THRESHOLD:
+                moves[d] += MID_FOOD_WEIGHT * (health - nearest_food_distance)
             else:
-                moves[d] += 0 * (health - nearest_food_distance)
+                moves[d] += HIGH_FOOD_WEIGHT * (health - nearest_food_distance)
 
             # if we are adjacent to food & slightly low on health, might as well get it
-            if nearest_food_distance == 1 and health < 50:
-                moves[d] += 50
+            if nearest_food_distance == ADJACENT_FOOD_DISTANCE and health < ADJACENT_FOOD_HEALTH_THRESHOLD:
+                moves[d] += ADJACENT_FOOD_BONUS
 
         # if nothing is happening just chase tail (encourage circular movement to stay alive)
-        if health > 50:
+        if health > TAIL_CHASE_HEALTH_THRESHOLD:
             tail_distance = manhattan_distance(new_head, [text_to_tuple(game_state['you']['body'][-1])])
-            moves[d] += max(0, 10 - tail_distance) * 3
+            moves[d] += max(0, TAIL_CHASE_RANGE - tail_distance) * TAIL_CHASE_WEIGHT
 
 
     # choose among the highest-scoring directions
