@@ -8,7 +8,7 @@ def info() -> typing.Dict:
     return {
         "apiversion": "1",
         "author": "talbott-hall",
-        "color": "#e63946",
+        "color": "#ffffff",
         "head": "evil",
         "tail": "bolt",
     }
