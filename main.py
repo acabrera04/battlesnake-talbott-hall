@@ -31,6 +31,8 @@ FLOOD_FILL_TRAP_PENALTY = 3000000
 HEAD_TO_HEAD_PENALTY = 10000
 DANGER_ZONE_PENALTY = 1000
 FLOOD_FILL_TIGHT_PENALTY = 300
+FLOOD_FILL_SPACE_REWARD_CAP = 60
+FLOOD_FILL_SPACE_WEIGHT = 1
 LOOKAHEAD_DEAD_END_PENALTY = 200
 #
 # Tier 2 — Strategic (30–90 range, meaningful direction choices)
@@ -49,6 +51,7 @@ LARGER_CUTOFF_LENGTH_MARGIN = 4
 LARGER_CUTOFF_BONUS_WEIGHT = 25
 AGGRESSION_RANGE = 4
 AGGRESSION_CHASE_WEIGHT = 10
+AGGRESSION_LENGTH_MARGIN = 2
 BODY_BLOCK_STANDOFF_DISTANCE = 2
 BODY_BLOCK_STANDOFF_BONUS = 30
 ENEMY_AVOIDANCE_RANGE = 3
@@ -58,16 +61,19 @@ BODY_PROXIMITY_PENALTY = 8
 DENSITY_RADIUS = 3
 DENSITY_PENALTY = 6
 CENTER_PREFERENCE_WEIGHT = 2
+WALL_PENALTY = 5
 LEGAL_MOVE_SCORE = 1
 #
 # Tier 4 — Food scoring
 STARVING_HEALTH_THRESHOLD = 25
 LOW_HEALTH_THRESHOLD = 50
 MID_HEALTH_THRESHOLD = 75
-STARVING_FOOD_WEIGHT = 10
-LOW_FOOD_WEIGHT = 2
+STARVING_FOOD_RANGE = 25
+STARVING_FOOD_WEIGHT = 8
+LOW_FOOD_RANGE = 15
+LOW_FOOD_WEIGHT = 3
+MID_FOOD_RANGE = 10
 MID_FOOD_WEIGHT = 1
-HIGH_FOOD_WEIGHT = 0
 CONTESTED_FOOD_DISCOUNT = 0.5
 OVERGROWN_LENGTH_THRESHOLD = 8
 OVERGROWN_FOOD_AVOID_WEIGHT = 8
@@ -491,7 +497,7 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
             occupied,
             board_width,
             board_height,
-            max_cells=self_length * 2,
+            max_cells=FLOOD_FILL_SPACE_REWARD_CAP,
         )
         if region_space < self_length:
             # hard trap: even counting current occupied cells we can't fit
@@ -502,6 +508,9 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
             tightness = 1.0 - (region_space - self_length) / max(1, self_length)
             moves[d] -= int(FLOOD_FILL_TIGHT_PENALTY * max(0.0, tightness))
 
+        # reward spacious regions — prefer directions with more open area
+        moves[d] += min(region_space, FLOOD_FILL_SPACE_REWARD_CAP) * FLOOD_FILL_SPACE_WEIGHT
+
         # baseline score for legal moves
         moves[d] += LEGAL_MOVE_SCORE
 
@@ -510,6 +519,12 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
         if health >= LOW_HEALTH_THRESHOLD:
             center_distance = distance_to_board_center(new_head, board_width, board_height)
             moves[d] -= center_distance * CENTER_PREFERENCE_WEIGHT
+
+        # penalize hugging walls — edges reduce available moves and increase trap risk
+        if new_head[0] == 0 or new_head[0] == board_width - 1:
+            moves[d] -= WALL_PENALTY
+        if new_head[1] == 0 or new_head[1] == board_height - 1:
+            moves[d] -= WALL_PENALTY
 
         # prefer moves with some breathing room from surrounding bodies/walls
         occupied_neighbors = sum(1 for neighbor in moveset(new_head) if neighbor in occupied)
@@ -548,8 +563,13 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
                 moves[d] -= proximity_penalty
 
         # pressure smaller snakes while maintaining a one-tile buffer from head-to-head collisions
-        if smaller_enemy_heads:
-            nearest_smaller_head_distance = manhattan_distance(new_head, smaller_enemy_heads)
+        # only chase snakes 2+ shorter — a snake 1 shorter can eat and tie/beat us
+        safely_smaller = [h for h in smaller_enemy_heads
+                          if any(len(s['body']) + AGGRESSION_LENGTH_MARGIN <= self_length
+                                 for s in game_state['board']['snakes']
+                                 if text_to_tuple(s['head']) == h)]
+        if safely_smaller:
+            nearest_smaller_head_distance = manhattan_distance(new_head, safely_smaller)
             if nearest_smaller_head_distance == BODY_BLOCK_STANDOFF_DISTANCE:
                 moves[d] += BODY_BLOCK_STANDOFF_BONUS
             elif 1 < nearest_smaller_head_distance <= AGGRESSION_RANGE:
@@ -558,7 +578,7 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
 
             # area control: prefer moves that cut off smaller snakes' available space
             if nearest_smaller_head_distance <= AGGRESSION_RANGE:
-                nearest_small = min(smaller_enemy_heads, key=lambda h: abs(new_head[0] - h[0]) + abs(new_head[1] - h[1]))
+                nearest_small = min(safely_smaller, key=lambda h: abs(new_head[0] - h[0]) + abs(new_head[1] - h[1]))
                 occupied_after_move = occupied | {new_head}
                 enemy_space = flood_fill_reachable_space(
                     nearest_small, occupied_after_move, board_width, board_height, max_cells=CUTOFF_SPACE_SAMPLE,
@@ -624,14 +644,20 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
                         effective_dist = our_dist
                     best_food_score = min(best_food_score, effective_dist)
                 nearest_food_distance = int(best_food_score)
+            # distance-based food scoring: score = max(0, range - dist) * weight
+            # doesn't penalize low health — a starving snake values nearby food just as much
             if health < STARVING_HEALTH_THRESHOLD:
+                food_range = STARVING_FOOD_RANGE
                 food_weight = STARVING_FOOD_WEIGHT
             elif health < LOW_HEALTH_THRESHOLD:
+                food_range = LOW_FOOD_RANGE
                 food_weight = LOW_FOOD_WEIGHT
             elif health < MID_HEALTH_THRESHOLD:
+                food_range = MID_FOOD_RANGE
                 food_weight = MID_FOOD_WEIGHT
             else:
-                food_weight = HIGH_FOOD_WEIGHT
+                food_range = 0
+                food_weight = 0
 
             excess_length = max(0, self_length - OVERGROWN_LENGTH_THRESHOLD)
             hunger_safe_ratio = max(
@@ -644,7 +670,7 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
                 0.0,
                 food_weight - (OVERGROWN_FOOD_AVOID_WEIGHT * excess_length * hunger_safe_ratio),
             )
-            moves[d] += int(effective_food_weight * max(0, health - nearest_food_distance))
+            moves[d] += int(effective_food_weight * max(0, food_range - nearest_food_distance))
 
             # hard penalty for stepping directly onto food when overgrown and not hungry
             if excess_length > 0 and health > OVERGROWN_AVOID_DISABLE_HEALTH and new_head in food:
