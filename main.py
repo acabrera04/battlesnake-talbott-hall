@@ -48,8 +48,8 @@ ENEMY_AVOIDANCE_WEIGHT = 4
 AGGRESSION_RANGE = 4
 AGGRESSION_CHASE_WEIGHT = 6
 
-HEAD_TO_HEAD_PENALTY = 1500
-SMALLER_HEAD_TO_HEAD_PENALTY = 1000
+HEAD_TO_HEAD_PENALTY = 10000
+SMALLER_HEAD_TO_HEAD_PENALTY = 10
 BODY_BLOCK_STANDOFF_DISTANCE = 2
 BODY_BLOCK_STANDOFF_BONUS = 30
 
@@ -151,8 +151,11 @@ def build_board(game_state: SnakeApiObject) -> typing.Tuple[
             enemy_len = len(snake['body'])
             enemy_head = text_to_tuple(snake['head'])
 
-            # enemy body segments are occupied and should be avoided immediately
-            for segment in snake['body']:
+            # enemy body segments are occupied, but skip tail if they didn't just eat
+            enemy_eaten = len(snake['body']) > 2 and text_to_tuple(snake['body'][-1]) == text_to_tuple(snake['body'][-2])
+            for i, segment in enumerate(snake['body']):
+                if i == len(snake['body']) - 1 and not enemy_eaten:
+                    continue
                 occupied.add(text_to_tuple(segment))
 
             for m in moveset(enemy_head):
