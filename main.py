@@ -49,6 +49,7 @@ AGGRESSION_RANGE = 4
 AGGRESSION_CHASE_WEIGHT = 6
 
 HEAD_TO_HEAD_PENALTY = 10000
+SMALLER_HEAD_TO_HEAD_BONUS = 50
 SMALLER_HEAD_TO_HEAD_PENALTY = 10
 BODY_BLOCK_STANDOFF_DISTANCE = 2
 BODY_BLOCK_STANDOFF_BONUS = 30
@@ -297,11 +298,17 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
     board_width = game_state['board']['width']
     board_height = game_state['board']['height']
     threat_enemy_positions, smaller_enemy_heads, all_enemy_heads = get_enemy_targets(game_state)
-    enemy_head_collision_squares: typing.Set[Point] = set()
+    dangerous_head_collision_squares: typing.Set[Point] = set()
+    killable_head_collision_squares: typing.Set[Point] = set()
     for enemy_head in all_enemy_heads:
+        is_smaller = enemy_head in smaller_enemy_heads
         for square in moveset(enemy_head):
             if in_bounds(square, board_width, board_height):
-                enemy_head_collision_squares.add(square)
+                if is_smaller:
+                    killable_head_collision_squares.add(square)
+                else:
+                    dangerous_head_collision_squares.add(square)
+    enemy_head_collision_squares = dangerous_head_collision_squares | killable_head_collision_squares
 
     for d in directions:
         # calculate new head position based on move direction
@@ -339,11 +346,15 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
         if new_head in can_die:
             moves[d] -= DANGER_ZONE_PENALTY
 
-        # avoid direct head-to-head squares, even against smaller snakes
-        if new_head in enemy_head_collision_squares:
+        # avoid direct head-to-head squares against equal/larger snakes
+        if new_head in dangerous_head_collision_squares:
             moves[d] -= HEAD_TO_HEAD_PENALTY
 
-        # can_kill is the smaller-snake head contest zone; avoid it to bait body collisions
+        # reward head-to-head squares against smaller snakes (we win the collision)
+        if new_head in killable_head_collision_squares:
+            moves[d] += SMALLER_HEAD_TO_HEAD_BONUS
+
+        # can_kill is the smaller-snake head contest zone; small penalty to avoid accidental ties
         if new_head in can_kill:
             moves[d] -= SMALLER_HEAD_TO_HEAD_PENALTY
 
