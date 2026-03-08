@@ -22,68 +22,63 @@ SnakeApiObject = typing.Dict[str, typing.Any]
 
 
 # Scoring weights and thresholds for move selection.
+#
+# Tier 0 — Hard gates (absolute, never overridden)
 ILLEGAL_MOVE_PENALTY = -1000000
-LEGAL_MOVE_SCORE = 1
+FLOOD_FILL_TRAP_PENALTY = 3000000
+#
+# Tier 1 — Near-certain death (1 000–10 000 range)
+HEAD_TO_HEAD_PENALTY = 10000
 DANGER_ZONE_PENALTY = 1000
-
+FLOOD_FILL_TIGHT_PENALTY = 300
+LOOKAHEAD_DEAD_END_PENALTY = 200
+#
+# Tier 2 — Strategic (30–90 range, meaningful direction choices)
+DEEP_LOOKAHEAD_MIN_DEPTH = 2
+DEEP_LOOKAHEAD_MAX_DEPTH = 8
+DEEP_LOOKAHEAD_TIME_BUDGET_MS = 300
+DEEP_LOOKAHEAD_WEIGHT = 30
+LOOKAHEAD_FREEDOM_WEIGHT = 20
+SMALLER_HEAD_TO_HEAD_BONUS = 50
+#
+# Tier 3 — Tactical (5–30 range, fine-grained preferences)
+CUTOFF_BONUS_WEIGHT = 20
+CUTOFF_SPACE_SAMPLE = 30
+LARGER_CUTOFF_RANGE = 6
+LARGER_CUTOFF_LENGTH_MARGIN = 4
+LARGER_CUTOFF_BONUS_WEIGHT = 25
+AGGRESSION_RANGE = 4
+AGGRESSION_CHASE_WEIGHT = 10
+BODY_BLOCK_STANDOFF_DISTANCE = 2
+BODY_BLOCK_STANDOFF_BONUS = 30
+ENEMY_AVOIDANCE_RANGE = 3
+ENEMY_AVOIDANCE_WEIGHT = 8
+SMALLER_HEAD_TO_HEAD_PENALTY = 10
+BODY_PROXIMITY_PENALTY = 8
+DENSITY_RADIUS = 3
+DENSITY_PENALTY = 6
+CENTER_PREFERENCE_WEIGHT = 2
+LEGAL_MOVE_SCORE = 1
+#
+# Tier 4 — Food scoring
 STARVING_HEALTH_THRESHOLD = 25
 LOW_HEALTH_THRESHOLD = 50
 MID_HEALTH_THRESHOLD = 75
-
 STARVING_FOOD_WEIGHT = 10
 LOW_FOOD_WEIGHT = 2
 MID_FOOD_WEIGHT = 1
 HIGH_FOOD_WEIGHT = 0
-
-ADJACENT_FOOD_DISTANCE = 1
-ADJACENT_FOOD_HEALTH_THRESHOLD = 50
-ADJACENT_FOOD_BONUS = 50
-
-TAIL_CHASE_HEALTH_THRESHOLD = 30
-TAIL_CHASE_RANGE = 10
-TAIL_CHASE_BASE_WEIGHT = 5
-TAIL_CHASE_LENGTH_SCALE = 0.2
-
-ENEMY_AVOIDANCE_RANGE = 3
-ENEMY_AVOIDANCE_WEIGHT = 4
-
-AGGRESSION_RANGE = 4
-AGGRESSION_CHASE_WEIGHT = 6
-
-HEAD_TO_HEAD_PENALTY = 10000
-SMALLER_HEAD_TO_HEAD_BONUS = 50
-SMALLER_HEAD_TO_HEAD_PENALTY = 10
-BODY_BLOCK_STANDOFF_DISTANCE = 2
-BODY_BLOCK_STANDOFF_BONUS = 30
-
-LOOKAHEAD_FREEDOM_WEIGHT = 15
-LOOKAHEAD_DEAD_END_PENALTY = 200
-DEEP_LOOKAHEAD_MIN_DEPTH = 2
-DEEP_LOOKAHEAD_MAX_DEPTH = 8
-DEEP_LOOKAHEAD_TIME_BUDGET_MS = 200
-DEEP_LOOKAHEAD_WEIGHT = 20
-
-FLOOD_FILL_TRAP_PENALTY = 3000000
-FLOOD_FILL_TIGHT_PENALTY = 500
-
-CENTER_PREFERENCE_WEIGHT = 4
-CUTOFF_BONUS_WEIGHT = 8
-CUTOFF_SPACE_SAMPLE = 30
-LARGER_CUTOFF_RANGE = 6
-LARGER_CUTOFF_LENGTH_MARGIN = 4
-LARGER_CUTOFF_BONUS_WEIGHT = 10
-CONTESTED_FOOD_DISCOUNT = 0.3
-
-BODY_PROXIMITY_PENALTY = 12
-
-DENSITY_RADIUS = 4
-DENSITY_PENALTY = 15
-
+CONTESTED_FOOD_DISCOUNT = 0.5
 OVERGROWN_LENGTH_THRESHOLD = 20
-OVERGROWN_FOOD_AVOID_WEIGHT = 8
-OVERGROWN_ADJACENT_FOOD_PENALTY = 120
+OVERGROWN_FOOD_AVOID_WEIGHT = 5
 OVERGROWN_AVOID_DISABLE_HEALTH = 50
 MAX_HEALTH = 100
+#
+# Tail chasing
+TAIL_CHASE_HEALTH_THRESHOLD = 20
+TAIL_CHASE_RANGE = 10
+TAIL_CHASE_BASE_WEIGHT = 3
+TAIL_CHASE_LENGTH_SCALE = 0.15
 
 
 # info is called when you create your Battlesnake on play.battlesnake.com
@@ -448,15 +443,6 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
     # load board state
     food, occupied, can_die, can_kill = build_board(game_state)
 
-    # collect tail positions that will vacate next turn (for smarter flood fill)
-    moving_tails: typing.Set[Point] = set()
-    for snake in game_state['board']['snakes']:
-        eaten = len(snake['body']) > 2 and text_to_tuple(snake['body'][-1]) == text_to_tuple(snake['body'][-2])
-        if not eaten:
-            moving_tails.add(text_to_tuple(snake['body'][-1]))
-    # occupied_with_tails includes tails (more conservative view for flood fill)
-    occupied_with_tails = occupied | moving_tails
-
     # init move scores
     directions = ['up', 'down', 'left', 'right']
     moves = {direction: 0 for direction in directions}
@@ -657,7 +643,7 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
                 0.0,
                 food_weight - (OVERGROWN_FOOD_AVOID_WEIGHT * excess_length * hunger_safe_ratio),
             )
-            moves[d] += int(effective_food_weight * (health - nearest_food_distance))
+            moves[d] += int(effective_food_weight * max(0, health - nearest_food_distance))
 
         # chase tail to encourage circular movement and avoid self-trapping
         # weight scales with length since longer snakes benefit more from staying compact
