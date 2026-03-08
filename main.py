@@ -21,7 +21,7 @@ SnakeApiObject = typing.Dict[str, typing.Any]
 
 
 # Scoring weights and thresholds for move selection.
-ILLEGAL_MOVE_PENALTY = -1000000
+ILLEGAL_MOVE_PENALTY = float('-inf')
 LEGAL_MOVE_SCORE = 1
 DANGER_ZONE_PENALTY = 1000
 
@@ -124,7 +124,13 @@ def moveset(p: Point) -> typing.List[Point]:
 
 def in_bounds(p: Point, width: int, height: int) -> bool:
     """Return True when a point is inside board bounds."""
-    return 0 <= p[0] < width and 0 <= p[1] < height
+    if (p[0] < 0 or p[0] > width):
+        return False
+    elif (p[1] < 0 or p[0] > height):
+        return False
+    
+    return True
+    #return 0 <= p[0] < width and 0 <= p[1] < height
 
 def build_board(game_state: SnakeApiObject) -> typing.Tuple[
     typing.List[Point],
@@ -530,9 +536,14 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
 
             if len(all_enemy_heads) == 1:
                 if (game_state['you']['length'] == game_state['board']['snakes'][0]['length']):
-                    effective_food_weight = 25
+                    effective_food_weight = 15
                 elif (game_state['you']['length'] < game_state['board']['snakes'][0]['length']):
                     effective_food_weight = 30
+                else:
+                    effective_food_weight = max(
+                    0.0,
+                    food_weight - (OVERGROWN_FOOD_AVOID_WEIGHT * excess_length * hunger_safe_ratio),
+                    )
             
 
             moves[d] += int(effective_food_weight * (health - nearest_food_distance))
