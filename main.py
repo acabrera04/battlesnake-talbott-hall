@@ -38,9 +38,10 @@ ADJACENT_FOOD_DISTANCE = 1
 ADJACENT_FOOD_HEALTH_THRESHOLD = 50
 ADJACENT_FOOD_BONUS = 50
 
-TAIL_CHASE_HEALTH_THRESHOLD = 50
+TAIL_CHASE_HEALTH_THRESHOLD = 30
 TAIL_CHASE_RANGE = 10
-TAIL_CHASE_WEIGHT = 3
+TAIL_CHASE_BASE_WEIGHT = 5
+TAIL_CHASE_LENGTH_SCALE = 0.2
 
 ENEMY_AVOIDANCE_RANGE = 3
 ENEMY_AVOIDANCE_WEIGHT = 4
@@ -457,10 +458,12 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
             )
             moves[d] += int(effective_food_weight * (health - nearest_food_distance))
 
-        # if nothing is happening just chase tail (encourage circular movement to stay alive)
+        # chase tail to encourage circular movement and avoid self-trapping
+        # weight scales with length since longer snakes benefit more from staying compact
         if health > TAIL_CHASE_HEALTH_THRESHOLD:
             tail_distance = manhattan_distance(new_head, [text_to_tuple(game_state['you']['body'][-1])])
-            moves[d] += max(0, TAIL_CHASE_RANGE - tail_distance) * TAIL_CHASE_WEIGHT
+            tail_weight = TAIL_CHASE_BASE_WEIGHT + int(self_length * TAIL_CHASE_LENGTH_SCALE)
+            moves[d] += max(0, TAIL_CHASE_RANGE - tail_distance) * tail_weight
 
 
     # choose among the highest-scoring directions
