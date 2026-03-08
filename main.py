@@ -29,10 +29,10 @@ STARVING_HEALTH_THRESHOLD = 25
 LOW_HEALTH_THRESHOLD = 50
 MID_HEALTH_THRESHOLD = 75
 
-STARVING_FOOD_WEIGHT = 10
-LOW_FOOD_WEIGHT = 2
-MID_FOOD_WEIGHT = 1
-HIGH_FOOD_WEIGHT = 0
+STARVING_FOOD_WEIGHT = 20
+LOW_FOOD_WEIGHT = 12
+MID_FOOD_WEIGHT = 8
+HIGH_FOOD_WEIGHT = 5
 
 ADJACENT_FOOD_DISTANCE = 1
 ADJACENT_FOOD_HEALTH_THRESHOLD = 50
@@ -57,7 +57,7 @@ BODY_BLOCK_STANDOFF_BONUS = 30
 
 LOOKAHEAD_FREEDOM_WEIGHT = 15
 LOOKAHEAD_DEAD_END_PENALTY = 200
-DEEP_LOOKAHEAD_DEPTH = 3
+DEEP_LOOKAHEAD_DEPTH = 5
 DEEP_LOOKAHEAD_WEIGHT = 20
 
 FLOOD_FILL_TRAP_PENALTY = 3000000
@@ -539,7 +539,8 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
                         food_weight - (OVERGROWN_FOOD_AVOID_WEIGHT * excess_length * hunger_safe_ratio),
                     )
             
-
+            if health < STARVING_HEALTH_THRESHOLD:
+                effective_food_weight = STARVING_FOOD_WEIGHT
             moves[d] += int(effective_food_weight * (health - nearest_food_distance))
 
         # chase tail to encourage circular movement and avoid self-trapping
