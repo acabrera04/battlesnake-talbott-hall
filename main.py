@@ -61,6 +61,7 @@ FLOOD_FILL_TRAP_PENALTY = 3000000
 FLOOD_FILL_TIGHT_PENALTY = 500
 
 CENTER_PREFERENCE_WEIGHT = 4
+CONTESTED_FOOD_DISCOUNT = 0.3
 
 BODY_PROXIMITY_PENALTY = 12
 
@@ -405,8 +406,21 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
 
         # prefer moves that get closer to the nearest food
         if food:
-            # use current health to determine if we want food or not (minimize length)
+            # find nearest food, discounting food that enemies will reach first
             nearest_food_distance = manhattan_distance(new_head, food)
+            if all_enemy_heads and health >= STARVING_HEALTH_THRESHOLD:
+                # check if an enemy is closer to our nearest food
+                best_food_score = float('inf')
+                for f in food:
+                    our_dist = abs(new_head[0] - f[0]) + abs(new_head[1] - f[1])
+                    enemy_dist = min(abs(eh[0] - f[0]) + abs(eh[1] - f[1]) for eh in all_enemy_heads)
+                    if enemy_dist < our_dist:
+                        # enemy is closer, discount this food
+                        effective_dist = our_dist / CONTESTED_FOOD_DISCOUNT
+                    else:
+                        effective_dist = our_dist
+                    best_food_score = min(best_food_score, effective_dist)
+                nearest_food_distance = int(best_food_score)
             if health < STARVING_HEALTH_THRESHOLD:
                 food_weight = STARVING_FOOD_WEIGHT
             elif health < LOW_HEALTH_THRESHOLD:
