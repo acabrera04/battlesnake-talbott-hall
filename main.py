@@ -69,9 +69,10 @@ LOW_FOOD_WEIGHT = 2
 MID_FOOD_WEIGHT = 1
 HIGH_FOOD_WEIGHT = 0
 CONTESTED_FOOD_DISCOUNT = 0.5
-OVERGROWN_LENGTH_THRESHOLD = 20
-OVERGROWN_FOOD_AVOID_WEIGHT = 5
-OVERGROWN_AVOID_DISABLE_HEALTH = 50
+OVERGROWN_LENGTH_THRESHOLD = 8
+OVERGROWN_FOOD_AVOID_WEIGHT = 8
+OVERGROWN_AVOID_DISABLE_HEALTH = 30
+OVERGROWN_FOOD_STEP_PENALTY = 60
 MAX_HEALTH = 100
 #
 # Tail chasing
@@ -79,6 +80,7 @@ TAIL_CHASE_HEALTH_THRESHOLD = 20
 TAIL_CHASE_RANGE = 10
 TAIL_CHASE_BASE_WEIGHT = 3
 TAIL_CHASE_LENGTH_SCALE = 0.15
+TAIL_CHASE_OVERGROWN_BOOST = 5
 
 
 # info is called when you create your Battlesnake on play.battlesnake.com
@@ -637,19 +639,24 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
                 (health - OVERGROWN_AVOID_DISABLE_HEALTH) / (MAX_HEALTH - OVERGROWN_AVOID_DISABLE_HEALTH),
             )
 
-            # avoid growth-inducing food when we're already long and healthy to reduce risk of self-trapping
-            # this is a linear penalty based on how much we're over the length threshold and how close we are to starving
+            # avoid growth-inducing food when at or past target length and healthy
             effective_food_weight = max(
                 0.0,
                 food_weight - (OVERGROWN_FOOD_AVOID_WEIGHT * excess_length * hunger_safe_ratio),
             )
             moves[d] += int(effective_food_weight * max(0, health - nearest_food_distance))
 
+            # hard penalty for stepping directly onto food when overgrown and not hungry
+            if excess_length > 0 and health > OVERGROWN_AVOID_DISABLE_HEALTH and new_head in food:
+                moves[d] -= OVERGROWN_FOOD_STEP_PENALTY * excess_length
+
         # chase tail to encourage circular movement and avoid self-trapping
-        # weight scales with length since longer snakes benefit more from staying compact
+        # boost tail chasing when overgrown to encourage tight circling instead of eating
         if health > TAIL_CHASE_HEALTH_THRESHOLD:
             tail_distance = manhattan_distance(new_head, [text_to_tuple(game_state['you']['body'][-1])])
             tail_weight = TAIL_CHASE_BASE_WEIGHT + int(self_length * TAIL_CHASE_LENGTH_SCALE)
+            if self_length > OVERGROWN_LENGTH_THRESHOLD:
+                tail_weight += TAIL_CHASE_OVERGROWN_BOOST
             moves[d] += max(0, TAIL_CHASE_RANGE - tail_distance) * tail_weight
 
 
