@@ -69,6 +69,9 @@ FLOOD_FILL_TIGHT_PENALTY = 500
 CENTER_PREFERENCE_WEIGHT = 4
 CUTOFF_BONUS_WEIGHT = 8
 CUTOFF_SPACE_SAMPLE = 30
+LARGER_CUTOFF_RANGE = 6
+LARGER_CUTOFF_LENGTH_MARGIN = 4
+LARGER_CUTOFF_BONUS_WEIGHT = 10
 CONTESTED_FOOD_DISCOUNT = 0.3
 
 BODY_PROXIMITY_PENALTY = 12
@@ -201,11 +204,22 @@ def manhattan_distance(
     """Compute Manhattan distance from a point to the nearest target point."""
     return min(abs(point[0] - f[0]) + abs(point[1] - f[1]) for f in food)
 
-def get_enemy_targets(game_state: SnakeApiObject) -> typing.Tuple[typing.List[Point], typing.List[Point], typing.List[Point]]:
-    """Collect enemy body/head targets used by avoidance and aggression heuristics."""
+def get_enemy_targets(
+    game_state: SnakeApiObject,
+) -> typing.Tuple[typing.List[Point], typing.List[Point], typing.List[Point], typing.List[Point]]:
+    """Collect enemy body/head targets used by avoidance and aggression heuristics.
+
+    Returns:
+        threat_positions: body segments of equal/larger snakes
+        smaller_heads: heads of snakes we can beat head-to-head
+        all_enemy_heads: every enemy head
+        near_larger_heads: heads of snakes slightly longer than us (1-LARGER_CUTOFF_LENGTH_MARGIN)
+            that we should try to cut off without engaging directly
+    """
     threat_positions: typing.List[Point] = []
     smaller_heads: typing.List[Point] = []
     all_enemy_heads: typing.List[Point] = []
+    near_larger_heads: typing.List[Point] = []
     you_id = game_state['you']['id']
     self_length = len(game_state['you']['body'])
 
@@ -213,15 +227,19 @@ def get_enemy_targets(game_state: SnakeApiObject) -> typing.Tuple[typing.List[Po
         if snake['id'] == you_id:
             continue
         enemy_head = text_to_tuple(snake['head'])
+        enemy_length = len(snake['body'])
         all_enemy_heads.append(enemy_head)
 
-        if len(snake['body']) >= self_length:
+        if enemy_length >= self_length:
             for segment in snake['body']:
                 threat_positions.append(text_to_tuple(segment))
+            # snakes 1-LARGER_CUTOFF_LENGTH_MARGIN longer: dangerous to fight, viable to box in
+            if self_length <= enemy_length <= self_length + LARGER_CUTOFF_LENGTH_MARGIN:
+                near_larger_heads.append(enemy_head)
         else:
             smaller_heads.append(enemy_head)
 
-    return threat_positions, smaller_heads, all_enemy_heads
+    return threat_positions, smaller_heads, all_enemy_heads, near_larger_heads
 
 def count_safe_followup_moves(
     head: Point,
@@ -443,7 +461,7 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
     self_length = len(game_state['you']['body'])
     board_width = game_state['board']['width']
     board_height = game_state['board']['height']
-    threat_enemy_positions, smaller_enemy_heads, all_enemy_heads = get_enemy_targets(game_state)
+    threat_enemy_positions, smaller_enemy_heads, all_enemy_heads, near_larger_enemy_heads = get_enemy_targets(game_state)
     dangerous_head_collision_squares: typing.Set[Point] = set()
     killable_head_collision_squares: typing.Set[Point] = set()
     for enemy_head in all_enemy_heads:
@@ -537,6 +555,27 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
                 )
                 # bonus for reducing enemy's available space
                 cutoff_bonus = max(0, CUTOFF_SPACE_SAMPLE - enemy_space) * CUTOFF_BONUS_WEIGHT // CUTOFF_SPACE_SAMPLE
+                moves[d] += cutoff_bonus
+
+        # intercept slightly-larger snakes: try to cut off their space without head-to-head
+        # only apply when we are NOT moving into their collision zone (head-to-head would be fatal)
+        if near_larger_enemy_heads and new_head not in dangerous_head_collision_squares:
+            nearest_larger = min(
+                near_larger_enemy_heads,
+                key=lambda h: abs(new_head[0] - h[0]) + abs(new_head[1] - h[1]),
+            )
+            dist_to_larger = abs(new_head[0] - nearest_larger[0]) + abs(new_head[1] - nearest_larger[1])
+            if dist_to_larger <= LARGER_CUTOFF_RANGE:
+                occupied_after_move = occupied | {new_head}
+                enemy_space = flood_fill_reachable_space(
+                    nearest_larger, occupied_after_move, board_width, board_height,
+                    max_cells=CUTOFF_SPACE_SAMPLE,
+                )
+                cutoff_bonus = (
+                    max(0, CUTOFF_SPACE_SAMPLE - enemy_space)
+                    * LARGER_CUTOFF_BONUS_WEIGHT
+                    // CUTOFF_SPACE_SAMPLE
+                )
                 moves[d] += cutoff_bonus
 
         # one-step lookahead: prefer moves that keep future options open
