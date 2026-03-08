@@ -76,6 +76,9 @@ CONTESTED_FOOD_DISCOUNT = 0.3
 
 BODY_PROXIMITY_PENALTY = 12
 
+DENSITY_RADIUS = 4
+DENSITY_PENALTY = 15
+
 OVERGROWN_LENGTH_THRESHOLD = 20
 OVERGROWN_FOOD_AVOID_WEIGHT = 8
 OVERGROWN_ADJACENT_FOOD_PENALTY = 120
@@ -462,6 +465,16 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
     board_width = game_state['board']['width']
     board_height = game_state['board']['height']
     threat_enemy_positions, smaller_enemy_heads, all_enemy_heads, near_larger_enemy_heads = get_enemy_targets(game_state)
+
+    # collect all enemy body segments for density scoring (all snakes, all segments)
+    you_id = game_state['you']['id']
+    all_enemy_segments: typing.List[Point] = [
+        text_to_tuple(seg)
+        for snake in game_state['board']['snakes']
+        if snake['id'] != you_id
+        for seg in snake['body']
+    ]
+
     dangerous_head_collision_squares: typing.Set[Point] = set()
     killable_head_collision_squares: typing.Set[Point] = set()
     for enemy_head in all_enemy_heads:
@@ -513,6 +526,15 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
         # prefer moves with some breathing room from surrounding bodies/walls
         occupied_neighbors = sum(1 for neighbor in moveset(new_head) if neighbor in occupied)
         moves[d] -= occupied_neighbors * BODY_PROXIMITY_PENALTY
+
+        # avoid high-density zones: penalise each enemy segment within DENSITY_RADIUS
+        # this catches crowded corners/edges that flood fill misses (space exists today but not next turn)
+        if all_enemy_segments:
+            nearby_segments = sum(
+                1 for seg in all_enemy_segments
+                if abs(seg[0] - new_head[0]) + abs(seg[1] - new_head[1]) <= DENSITY_RADIUS
+            )
+            moves[d] -= nearby_segments * DENSITY_PENALTY
 
         # avoid risky head-to-head zones against equal/larger snakes
         if new_head in can_die:
