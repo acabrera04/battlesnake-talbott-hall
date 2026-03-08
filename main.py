@@ -1,3 +1,5 @@
+"""Battlesnake game logic and move-selection heuristics."""
+
 # Welcome to
 # __________         __    __  .__                               __
 # \______   \_____ _/  |__/  |_|  |   ____   ______ ____ _____  |  | __ ____
@@ -71,6 +73,7 @@ MAX_HEALTH = 100
 # and controls your Battlesnake's appearance
 # TIP: If you open your Battlesnake URL in a browser you should see this data
 def info() -> typing.Dict[str, str]:
+    """Return Battlesnake metadata used by the game engine."""
     print("INFO")
 
     return {
@@ -84,21 +87,26 @@ def info() -> typing.Dict[str, str]:
 
 # start is called when your Battlesnake begins a game
 def start(game_state: SnakeApiObject) -> None:
+    """Handle game start events."""
     print("GAME START")
 
 
 # end is called when your Battlesnake finishes a game
 def end(game_state: SnakeApiObject) -> None:
+    """Handle game end events."""
     print("GAME OVER\n")
 
 def text_to_tuple(p: typing.Dict[str, int]) -> Point:
+    """Convert an API point dict to an (x, y) tuple."""
     return (p['x'], p['y'])
 
 def tuple_to_text(p: Point) -> typing.Dict[str, int]:
+    """Convert an (x, y) tuple to an API point dict."""
     return {'x': p[0], 'y': p[1]}
 
 # returns tuples of the 4 adjacent squares to p
 def moveset(p: Point) -> typing.List[Point]:
+    """Return the four orthogonally adjacent squares to a point."""
     return [
         (p[0]+1, p[1]),
         (p[0]-1, p[1]),
@@ -107,6 +115,7 @@ def moveset(p: Point) -> typing.List[Point]:
     ]
 
 def in_bounds(p: Point, width: int, height: int) -> bool:
+    """Return True when a point is inside board bounds."""
     return 0 <= p[0] < width and 0 <= p[1] < height
 
 def build_board(game_state: SnakeApiObject) -> typing.Tuple[
@@ -115,6 +124,7 @@ def build_board(game_state: SnakeApiObject) -> typing.Tuple[
     typing.Set[Point],
     typing.Set[Point],
 ]:
+    """Build derived board state: food, occupied cells, and danger zones."""
     board_width = game_state['board']['width']
     board_height = game_state['board']['height']
 
@@ -159,6 +169,7 @@ def build_board(game_state: SnakeApiObject) -> typing.Tuple[
     return food, occupied, can_die, can_kill
 
 def next_from_dir(head: Point, direction: str) -> Point:
+    """Return the next head position for a given move direction."""
     if direction == "up":
         return (head[0], head[1] + 1)
     elif direction == "down":
@@ -173,9 +184,11 @@ def manhattan_distance(
     point: Point,
     food: typing.List[Point],
 ) -> int:
+    """Compute Manhattan distance from a point to the nearest target point."""
     return min(abs(point[0] - f[0]) + abs(point[1] - f[1]) for f in food)
 
 def get_enemy_targets(game_state: SnakeApiObject) -> typing.Tuple[typing.List[Point], typing.List[Point], typing.List[Point]]:
+    """Collect enemy body/head targets used by avoidance and aggression heuristics."""
     threat_positions: typing.List[Point] = []
     smaller_heads: typing.List[Point] = []
     all_enemy_heads: typing.List[Point] = []
@@ -204,6 +217,7 @@ def count_safe_followup_moves(
     width: int,
     height: int,
 ) -> int:
+    """Count legal, low-risk follow-up squares from a candidate head position."""
     safe_moves = 0
 
     for next_square in moveset(head):
@@ -226,6 +240,7 @@ def flood_fill_reachable_space(
     height: int,
     max_cells: typing.Optional[int] = None,
 ) -> int:
+    """Estimate reachable open space from a start point using flood fill."""
     if start in occupied or not in_bounds(start, width, height):
         return 0
 
@@ -252,6 +267,7 @@ def flood_fill_reachable_space(
     return len(visited)
 
 def distance_to_board_center(point: Point, width: int, height: int) -> int:
+    """Return Manhattan distance to the nearest board center cell."""
     center_x_candidates = {(width - 1) // 2, width // 2}
     center_y_candidates = {(height - 1) // 2, height // 2}
 
@@ -265,6 +281,7 @@ def distance_to_board_center(point: Point, width: int, height: int) -> int:
 # Valid moves are "up", "down", "left", or "right"
 # See https://docs.battlesnake.com/api/example-move for available data
 def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
+    """Score legal directions and return the highest-valued next move."""
 
     # load board state
     food, occupied, can_die, can_kill = build_board(game_state)
