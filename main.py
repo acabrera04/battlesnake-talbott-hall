@@ -63,12 +63,20 @@ DEEP_LOOKAHEAD_WEIGHT = 20
 FLOOD_FILL_TRAP_PENALTY = 3000000
 FLOOD_FILL_TIGHT_PENALTY = 500
 
-CENTER_PREFERENCE_WEIGHT = 15 # 4
+CENTER_PREFERENCE_WEIGHT = 4
+EDGE_AVOIDANCE_WEIGHT = 30   # penalty per cell of closeness to wall
+EDGE_SAFE_DISTANCE = 3       # distance at which edge penalty drops to zero
 CUTOFF_BONUS_WEIGHT = 8
 CUTOFF_SPACE_SAMPLE = 30
 CONTESTED_FOOD_DISCOUNT = 0.3
 
 BODY_PROXIMITY_PENALTY = 12
+
+LOCAL_DENSITY_RADIUS = 3
+LOCAL_DENSITY_WEIGHT = 8
+
+VORONOI_TERRITORY_WEIGHT = 6
+VORONOI_MAX_CELLS = 80
 
 OVERGROWN_LENGTH_THRESHOLD = 20
 OVERGROWN_FOOD_AVOID_WEIGHT = 8
@@ -131,8 +139,15 @@ def build_board(game_state: SnakeApiObject) -> typing.Tuple[
     typing.Set[Point],
     typing.Set[Point],
     typing.Set[Point],
+    typing.Dict[Point, int],
 ]:
-    """Build derived board state: food, occupied cells, and danger zones."""
+    """Build derived board state: food, occupied cells, danger zones, and vacate times.
+
+    vacate_turn maps each occupied body segment to the turn (1-indexed) on which
+    it becomes free.  Segment body[i] (0=head) of a length-N snake vacates at
+    turn N-1-i (or N-i if the snake just ate).  The tail segment that is already
+    excluded from ``occupied`` gets vacate_turn 0 implicitly.
+    """
     board_width = game_state['board']['width']
     board_height = game_state['board']['height']
 
@@ -142,29 +157,40 @@ def build_board(game_state: SnakeApiObject) -> typing.Tuple[
     can_die: typing.Set[Point] = set()
     can_kill: typing.Set[Point] = set()
     occupied: typing.Set[Point] = set()
+    vacate_turn: typing.Dict[Point, int] = {}
 
     for snake in game_state['board']['snakes']:
 
         if snake['id'] == game_state['you']['id']:
             # our tail is occupied if we just ate food, otherwise it's not since it will move forward next turn
-            eaten = len(snake['body']) > 2 and text_to_tuple(snake['body'][-1]) == text_to_tuple(snake['body'][-2]) 
+            eaten = len(snake['body']) > 2 and text_to_tuple(snake['body'][-1]) == text_to_tuple(snake['body'][-2])
+            n = len(snake['body'])
 
             # populate body based on whether we just ate or not
-            for i, segment in enumerate(snake['body']): 
-                if i == len(snake['body']) - 1 and not eaten: # skip tail if we didn't just eat
+            for i, segment in enumerate(snake['body']):
+                if i == n - 1 and not eaten: # skip tail if we didn't just eat
                     continue
-                occupied.add(text_to_tuple(segment))
+                p = text_to_tuple(segment)
+                occupied.add(p)
+                turns = (n - i) if eaten else (n - 1 - i)
+                if p not in vacate_turn or turns < vacate_turn[p]:
+                    vacate_turn[p] = turns
 
         else: # determine death and murder zones for enemy snakes based on length
             enemy_len = len(snake['body'])
             enemy_head = text_to_tuple(snake['head'])
+            n = len(snake['body'])
 
             # enemy body segments are occupied, but skip tail if they didn't just eat
-            enemy_eaten = len(snake['body']) > 2 and text_to_tuple(snake['body'][-1]) == text_to_tuple(snake['body'][-2])
+            enemy_eaten = n > 2 and text_to_tuple(snake['body'][-1]) == text_to_tuple(snake['body'][-2])
             for i, segment in enumerate(snake['body']):
-                if i == len(snake['body']) - 1 and not enemy_eaten:
+                if i == n - 1 and not enemy_eaten:
                     continue
-                occupied.add(text_to_tuple(segment))
+                p = text_to_tuple(segment)
+                occupied.add(p)
+                turns = (n - i) if enemy_eaten else (n - 1 - i)
+                if p not in vacate_turn or turns < vacate_turn[p]:
+                    vacate_turn[p] = turns
 
             for m in moveset(enemy_head):
                 if in_bounds(m, board_width, board_height):
@@ -177,7 +203,7 @@ def build_board(game_state: SnakeApiObject) -> typing.Tuple[
 
     food = [text_to_tuple(food) for food in game_state['board']['food']]
 
-    return food, occupied, can_die, can_kill
+    return food, occupied, can_die, can_kill, vacate_turn
 
 def next_from_dir(head: Point, direction: str) -> Point:
     """Return the next head position for a given move direction."""
@@ -277,6 +303,97 @@ def flood_fill_reachable_space(
 
     return len(visited)
 
+def flood_fill_time_aware(
+    start: Point,
+    occupied: typing.Set[Point],
+    vacate_turn: typing.Dict[Point, int],
+    width: int,
+    height: int,
+    max_cells: typing.Optional[int] = None,
+) -> int:
+    """BFS flood fill that treats occupied cells as free once their snake body
+    segment has moved away.  A cell at BFS-distance ``d`` is accessible if it
+    is unoccupied, or if ``vacate_turn[cell] <= d`` (the body will be gone by
+    the time we arrive there).
+    """
+    from collections import deque
+
+    if start in occupied and vacate_turn.get(start, 999) > 0:
+        return 0
+    if not in_bounds(start, width, height):
+        return 0
+
+    visited: typing.Set[Point] = set()
+    queue: typing.Deque = deque()
+    queue.append((start, 0))
+    visited.add(start)
+    count = 0
+
+    while queue:
+        current, dist = queue.popleft()
+        count += 1
+        if max_cells is not None and count >= max_cells:
+            return count
+
+        for neighbor in moveset(current):
+            if not in_bounds(neighbor, width, height):
+                continue
+            if neighbor in visited:
+                continue
+            neighbor_dist = dist + 1
+            if neighbor in occupied:
+                if vacate_turn.get(neighbor, 999) > neighbor_dist:
+                    continue  # still occupied when we'd arrive
+            visited.add(neighbor)
+            queue.append((neighbor, neighbor_dist))
+
+    return count
+
+
+def voronoi_territory(
+    our_head: Point,
+    enemy_heads: typing.List[Point],
+    occupied: typing.Set[Point],
+    width: int,
+    height: int,
+    max_cells: typing.Optional[int] = None,
+) -> int:
+    """Return cells we reach before any enemy via simultaneous BFS (Voronoi)."""
+    from collections import deque
+
+    visited: typing.Dict[Point, int] = {}  # point -> owner_id (0 = us)
+    queue: typing.Deque = deque()
+
+    if in_bounds(our_head, width, height) and our_head not in occupied:
+        visited[our_head] = 0
+        queue.append((our_head, 0))
+
+    for i, eh in enumerate(enemy_heads):
+        if eh not in visited and in_bounds(eh, width, height) and eh not in occupied:
+            visited[eh] = i + 1
+            queue.append((eh, i + 1))
+
+    our_cells = 0
+    while queue:
+        point, owner = queue.popleft()
+        if owner == 0:
+            our_cells += 1
+            if max_cells is not None and our_cells >= max_cells:
+                return our_cells
+
+        for neighbor in moveset(point):
+            if not in_bounds(neighbor, width, height):
+                continue
+            if neighbor in occupied:
+                continue
+            if neighbor in visited:
+                continue
+            visited[neighbor] = owner
+            queue.append((neighbor, owner))
+
+    return our_cells
+
+
 def distance_to_board_center(point: Point, width: int, height: int) -> int:
     """Return Manhattan distance to the nearest board center cell."""
     center_x_candidates = {(width - 1) // 2, width // 2}
@@ -343,7 +460,7 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
     """Score legal directions and return the highest-valued next move."""
 
     # load board state
-    food, occupied, can_die, can_kill = build_board(game_state)
+    food, occupied, can_die, can_kill, vacate_turn = build_board(game_state)
 
     # collect tail positions that will vacate next turn (for smarter flood fill)
     moving_tails: typing.Set[Point] = set()
@@ -383,11 +500,12 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
             moves[d] = ILLEGAL_MOVE_PENALTY
             continue
 
-        # flood-fill lookahead: use tail-aware flood fill for a realistic view
-        # tails will vacate next turn, so the real available space is larger
-        region_space = flood_fill_reachable_space(
+        # flood-fill lookahead: time-aware BFS so cells occupied by body
+        # segments that will move away are counted as accessible
+        region_space = flood_fill_time_aware(
             new_head,
             occupied,
+            vacate_turn,
             board_width,
             board_height,
             max_cells=self_length * 2,
@@ -410,9 +528,30 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
             center_distance = distance_to_board_center(new_head, board_width, board_height)
             moves[d] -= center_distance * CENTER_PREFERENCE_WEIGHT
 
+            # explicit edge avoidance: walls cut off movement options
+            # penalty scales with closeness (dist=0 → 3×weight, dist=1 → 2×, dist=2 → 1×)
+            dist_to_edge = min(
+                new_head[0],
+                board_width - 1 - new_head[0],
+                new_head[1],
+                board_height - 1 - new_head[1],
+            )
+            edge_penalty = max(0, EDGE_SAFE_DISTANCE - dist_to_edge) * EDGE_AVOIDANCE_WEIGHT
+            moves[d] -= edge_penalty
+
         # prefer moves with some breathing room from surrounding bodies/walls
         occupied_neighbors = sum(1 for neighbor in moveset(new_head) if neighbor in occupied)
         moves[d] -= occupied_neighbors * BODY_PROXIMITY_PENALTY
+
+        # penalize high-density regions: count occupied cells within radius
+        density = sum(
+            1
+            for dx in range(-LOCAL_DENSITY_RADIUS, LOCAL_DENSITY_RADIUS + 1)
+            for dy in range(-LOCAL_DENSITY_RADIUS, LOCAL_DENSITY_RADIUS + 1)
+            if abs(dx) + abs(dy) <= LOCAL_DENSITY_RADIUS
+            and (new_head[0] + dx, new_head[1] + dy) in occupied
+        )
+        moves[d] -= density * LOCAL_DENSITY_WEIGHT
 
         # avoid risky head-to-head zones against equal/larger snakes
         if new_head in can_die:
@@ -475,6 +614,14 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
             new_head, occupied, all_enemy_heads, board_width, board_height, DEEP_LOOKAHEAD_DEPTH,
         )
         moves[d] += int(deep_score * DEEP_LOOKAHEAD_WEIGHT)
+
+        # Voronoi territory: prefer moves that keep more cells reachable only by us
+        # This prevents gradually getting hemmed into corners by enemy pressure
+        if all_enemy_heads:
+            territory = voronoi_territory(
+                new_head, all_enemy_heads, occupied | {new_head}, board_width, board_height, max_cells=VORONOI_MAX_CELLS,
+            )
+            moves[d] += territory * VORONOI_TERRITORY_WEIGHT
 
         # prefer moves that get closer to the nearest food
         if food:
