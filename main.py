@@ -61,6 +61,8 @@ FLOOD_FILL_TRAP_PENALTY = 3000000
 FLOOD_FILL_TIGHT_PENALTY = 500
 
 CENTER_PREFERENCE_WEIGHT = 4
+CUTOFF_BONUS_WEIGHT = 8
+CUTOFF_SPACE_SAMPLE = 30
 CONTESTED_FOOD_DISCOUNT = 0.3
 
 BODY_PROXIMITY_PENALTY = 12
@@ -390,6 +392,17 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
             elif 1 < nearest_smaller_head_distance <= AGGRESSION_RANGE:
                 aggression_bonus = (AGGRESSION_RANGE + 1 - nearest_smaller_head_distance) * AGGRESSION_CHASE_WEIGHT
                 moves[d] += aggression_bonus
+
+            # area control: prefer moves that cut off smaller snakes' available space
+            if nearest_smaller_head_distance <= AGGRESSION_RANGE:
+                nearest_small = min(smaller_enemy_heads, key=lambda h: abs(new_head[0] - h[0]) + abs(new_head[1] - h[1]))
+                occupied_after_move = occupied | {new_head}
+                enemy_space = flood_fill_reachable_space(
+                    nearest_small, occupied_after_move, board_width, board_height, max_cells=CUTOFF_SPACE_SAMPLE,
+                )
+                # bonus for reducing enemy's available space
+                cutoff_bonus = max(0, CUTOFF_SPACE_SAMPLE - enemy_space) * CUTOFF_BONUS_WEIGHT // CUTOFF_SPACE_SAMPLE
+                moves[d] += cutoff_bonus
 
         # one-step lookahead: prefer moves that keep future options open
         followup_options = count_safe_followup_moves(
