@@ -34,7 +34,7 @@ LOW_FOOD_WEIGHT = 12
 MID_FOOD_WEIGHT = 8
 HIGH_FOOD_WEIGHT = 5
 
-ADJACENT_FOOD_DISTANCE = 1
+ADJACENT_FOOD_DISTANCE = 0
 ADJACENT_FOOD_HEALTH_THRESHOLD = 50
 ADJACENT_FOOD_BONUS = 50
 
@@ -363,6 +363,13 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
     # occupied_with_tails includes tails (more conservative view for flood fill)
     occupied_with_tails = occupied | moving_tails
 
+    # Our own body will vacate cells as we move, so exclude it when measuring
+    # reachable space (tail-chasing is survivable; enemy bodies still block).
+    our_body_pts: typing.Set[Point] = {
+        text_to_tuple(seg) for seg in game_state['you']['body']
+    }
+    occupied_without_self = occupied - our_body_pts
+
     # init move scores
     directions = ['up', 'down', 'left', 'right']
     moves = {direction: 0 for direction in directions}
@@ -396,7 +403,7 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
         # tails will vacate next turn, so the real available space is larger
         region_space = flood_fill_reachable_space(
             new_head,
-            occupied,
+            occupied_without_self,
             board_width,
             board_height,
             max_cells=self_length * 2,
@@ -541,6 +548,8 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
             
             if health < STARVING_HEALTH_THRESHOLD:
                 effective_food_weight = STARVING_FOOD_WEIGHT
+            if best_food_score == ADJACENT_FOOD_DISTANCE:
+                effective_food_weight+= ADJACENT_FOOD_BONUS
             moves[d] += int(effective_food_weight * (health - nearest_food_distance))
 
         # chase tail to encourage circular movement and avoid self-trapping
