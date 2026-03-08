@@ -13,6 +13,7 @@
 # For more info see docs.battlesnake.com
 
 import random
+import time
 import typing
 
 
@@ -57,7 +58,9 @@ BODY_BLOCK_STANDOFF_BONUS = 30
 
 LOOKAHEAD_FREEDOM_WEIGHT = 15
 LOOKAHEAD_DEAD_END_PENALTY = 200
-DEEP_LOOKAHEAD_DEPTH = 3
+DEEP_LOOKAHEAD_MIN_DEPTH = 2
+DEEP_LOOKAHEAD_MAX_DEPTH = 8
+DEEP_LOOKAHEAD_TIME_BUDGET_MS = 200
 DEEP_LOOKAHEAD_WEIGHT = 20
 
 FLOOD_FILL_TRAP_PENALTY = 3000000
@@ -288,6 +291,10 @@ def distance_to_board_center(point: Point, width: int, height: int) -> int:
         for center_y in center_y_candidates
     )
 
+class _SearchTimeout(Exception):
+    """Raised when the lookahead time budget is exhausted."""
+
+
 def _simulate_enemy_moves(
     head: Point,
     occupied: typing.Set[Point],
@@ -336,13 +343,21 @@ def deep_lookahead_score(
     depth: int,
     alpha: float = float('-inf'),
     beta: float = float('inf'),
+    deadline: typing.Optional[float] = None,
 ) -> float:
     """Alpha-beta search scoring positions by survival potential.
 
     Maximises over our moves and minimises over enemy responses (modelled
     as greedy chase).  Alpha-beta bounds prune branches that cannot affect
     the final choice, significantly reducing the search tree.
+
+    Raises _SearchTimeout when *deadline* (a ``time.monotonic`` timestamp)
+    is exceeded so that iterative deepening can fall back to the previous
+    completed depth.
     """
+    if deadline is not None and time.monotonic() >= deadline:
+        raise _SearchTimeout
+
     if depth <= 0:
         return _evaluate_position(head, occupied, width, height)
 
@@ -362,7 +377,7 @@ def deep_lookahead_score(
     best = float('-inf')
     for m in legal_moves:
         child_score = 1.0 + 0.5 * deep_lookahead_score(
-            m, new_occupied, new_enemy_heads, width, height, depth - 1, alpha, beta,
+            m, new_occupied, new_enemy_heads, width, height, depth - 1, alpha, beta, deadline,
         )
         if child_score > best:
             best = child_score
@@ -373,11 +388,41 @@ def deep_lookahead_score(
     return best
 
 
+def iterative_deepening_score(
+    head: Point,
+    occupied: typing.Set[Point],
+    enemy_heads: typing.List[Point],
+    width: int,
+    height: int,
+    deadline: float,
+) -> float:
+    """Run alpha-beta at increasing depths until the time budget runs out.
+
+    Returns the score from the deepest fully completed search.
+    """
+    best_score = _evaluate_position(head, occupied, width, height)
+
+    for depth in range(DEEP_LOOKAHEAD_MIN_DEPTH, DEEP_LOOKAHEAD_MAX_DEPTH + 1):
+        try:
+            score = deep_lookahead_score(
+                head, occupied, enemy_heads, width, height, depth,
+                deadline=deadline,
+            )
+            best_score = score
+        except _SearchTimeout:
+            break
+
+    return best_score
+
+
 # move is called on every turn and returns your next move
 # Valid moves are "up", "down", "left", or "right"
 # See https://docs.battlesnake.com/api/example-move for available data
 def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
     """Score legal directions and return the highest-valued next move."""
+
+    # set deadline for iterative deepening search
+    lookahead_deadline = time.monotonic() + DEEP_LOOKAHEAD_TIME_BUDGET_MS / 1000.0
 
     # load board state
     food, occupied, can_die, can_kill = build_board(game_state)
@@ -507,9 +552,9 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
         if followup_options == 0:
             moves[d] -= LOOKAHEAD_DEAD_END_PENALTY
 
-        # multi-step lookahead: simulate moves and enemy responses
-        deep_score = deep_lookahead_score(
-            new_head, occupied, all_enemy_heads, board_width, board_height, DEEP_LOOKAHEAD_DEPTH,
+        # iterative deepening lookahead: search as deep as time allows
+        deep_score = iterative_deepening_score(
+            new_head, occupied, all_enemy_heads, board_width, board_height, lookahead_deadline,
         )
         moves[d] += int(deep_score * DEEP_LOOKAHEAD_WEIGHT)
 
