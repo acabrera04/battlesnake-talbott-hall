@@ -355,8 +355,10 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
         moves[d] += LEGAL_MOVE_SCORE
 
         # prefer staying closer to the center to reduce corner-trap risk
-        center_distance = distance_to_board_center(new_head, board_width, board_height)
-        moves[d] -= center_distance * CENTER_PREFERENCE_WEIGHT
+        # disable when hungry so food-seeking isn't penalized for edge food
+        if health >= LOW_HEALTH_THRESHOLD:
+            center_distance = distance_to_board_center(new_head, board_width, board_height)
+            moves[d] -= center_distance * CENTER_PREFERENCE_WEIGHT
 
         # prefer moves with some breathing room from surrounding bodies/walls
         occupied_neighbors = sum(1 for neighbor in moveset(new_head) if neighbor in occupied)
