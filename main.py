@@ -179,10 +179,23 @@ def build_board(game_state: SnakeApiObject) -> typing.Tuple[
                 if in_bounds(m, board_width, board_height):
                     if m in occupied: # ignore our own head
                         continue
-                    elif enemy_len > self_length: # changed >= to >, trying to be aggressive
-                        can_die.add(m)
+
+                    # print(f"{len(game_state['board']['snakes'])}")
+
+                    #check number of enemy snakes
+                    if len(game_state['board']['snakes']) > 2:
+                        
+                        if enemy_len >= self_length:
+                            can_die.add(m)
+                        else:
+                            can_kill.add(m)
+                    # if only 1 enemy (2 snakes on board)
                     else:
-                        can_kill.add(m)
+                        if enemy_len > self_length: # changed >= to >, trying to be aggressive
+                            can_die.add(m)
+                        else:
+                            can_kill.add(m)
+
 
     food = [text_to_tuple(food) for food in game_state['board']['food']]
 
@@ -537,9 +550,9 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
 
             if len(all_enemy_heads) == 1:
                 if (game_state['you']['length'] == game_state['board']['snakes'][0]['length']):
-                    effective_food_weight = 2
+                    effective_food_weight = 10
                 elif (game_state['you']['length'] < game_state['board']['snakes'][0]['length']):
-                    effective_food_weight = 25
+                    effective_food_weight = 27
                 else:
                     effective_food_weight = max(
                         0.0,
