@@ -288,32 +288,14 @@ def distance_to_board_center(point: Point, width: int, height: int) -> int:
         for center_y in center_y_candidates
     )
 
-def deep_lookahead_score(
+def _simulate_enemy_moves(
     head: Point,
     occupied: typing.Set[Point],
     enemy_heads: typing.List[Point],
     width: int,
     height: int,
-    depth: int,
-) -> float:
-    """Recursively score a position by counting average safe moves at each depth.
-
-    At each step, we simulate all enemy heads moving toward our head (greedy
-    chase) and update the occupied set accordingly.  The score is the average
-    number of safe follow-up moves across the tree, discounted by depth.
-    """
-    if depth <= 0:
-        return 0.0
-
-    legal_moves: typing.List[Point] = []
-    for m in moveset(head):
-        if in_bounds(m, width, height) and m not in occupied:
-            legal_moves.append(m)
-
-    if not legal_moves:
-        return -1.0  # dead end
-
-    # simulate enemy heads moving one step toward us (greedy)
+) -> typing.Tuple[typing.Set[Point], typing.List[Point]]:
+    """Simulate enemy heads greedily chasing our head by one step."""
     new_enemy_heads: typing.List[Point] = []
     new_occupied = set(occupied)
     new_occupied.add(head)
@@ -328,12 +310,67 @@ def deep_lookahead_score(
                     best_move = em
         new_enemy_heads.append(best_move)
         new_occupied.add(best_move)
+    return new_occupied, new_enemy_heads
 
-    total = 0.0
+
+def _evaluate_position(
+    head: Point,
+    occupied: typing.Set[Point],
+    width: int,
+    height: int,
+) -> float:
+    """Static evaluation: count open neighbours as a quick survival heuristic."""
+    score = 0.0
+    for m in moveset(head):
+        if in_bounds(m, width, height) and m not in occupied:
+            score += 1.0
+    return score
+
+
+def deep_lookahead_score(
+    head: Point,
+    occupied: typing.Set[Point],
+    enemy_heads: typing.List[Point],
+    width: int,
+    height: int,
+    depth: int,
+    alpha: float = float('-inf'),
+    beta: float = float('inf'),
+) -> float:
+    """Alpha-beta search scoring positions by survival potential.
+
+    Maximises over our moves and minimises over enemy responses (modelled
+    as greedy chase).  Alpha-beta bounds prune branches that cannot affect
+    the final choice, significantly reducing the search tree.
+    """
+    if depth <= 0:
+        return _evaluate_position(head, occupied, width, height)
+
+    legal_moves: typing.List[Point] = []
+    for m in moveset(head):
+        if in_bounds(m, width, height) and m not in occupied:
+            legal_moves.append(m)
+
+    if not legal_moves:
+        return -1.0  # dead end
+
+    # simulate enemy heads moving one step toward us (greedy)
+    new_occupied, new_enemy_heads = _simulate_enemy_moves(
+        head, occupied, enemy_heads, width, height,
+    )
+
+    best = float('-inf')
     for m in legal_moves:
-        child_score = deep_lookahead_score(m, new_occupied, new_enemy_heads, width, height, depth - 1)
-        total += 1.0 + child_score * 0.5  # 1 point for surviving + discounted future
-    return total / len(legal_moves)
+        child_score = 1.0 + 0.5 * deep_lookahead_score(
+            m, new_occupied, new_enemy_heads, width, height, depth - 1, alpha, beta,
+        )
+        if child_score > best:
+            best = child_score
+        if best > alpha:
+            alpha = best
+        if alpha >= beta:
+            break  # prune remaining branches
+    return best
 
 
 # move is called on every turn and returns your next move
