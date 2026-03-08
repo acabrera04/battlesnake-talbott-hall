@@ -30,9 +30,9 @@ LOW_HEALTH_THRESHOLD = 50
 MID_HEALTH_THRESHOLD = 75
 
 STARVING_FOOD_WEIGHT = 20
-LOW_FOOD_WEIGHT = 5
-MID_FOOD_WEIGHT = 3
-HIGH_FOOD_WEIGHT = 1
+LOW_FOOD_WEIGHT = 2
+MID_FOOD_WEIGHT = 1
+HIGH_FOOD_WEIGHT = 0
 
 ADJACENT_FOOD_DISTANCE = 0
 ADJACENT_FOOD_HEALTH_THRESHOLD = 50
@@ -416,7 +416,7 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
         # tails will vacate next turn, so the real available space is larger
         region_space = flood_fill_reachable_space(
             new_head,
-            occupied_without_self,
+            occupied,
             board_width,
             board_height,
             max_cells=self_length * 2,
