@@ -124,13 +124,7 @@ def moveset(p: Point) -> typing.List[Point]:
 
 def in_bounds(p: Point, width: int, height: int) -> bool:
     """Return True when a point is inside board bounds."""
-    if (p[0] < 0 or p[0] > width):
-        return False
-    elif (p[1] < 0 or p[0] > height):
-        return False
-    
-    return True
-    #return 0 <= p[0] < width and 0 <= p[1] < height
+    return (0 <= p[0] < width) and (0 <= p[1] < height)
 
 def build_board(game_state: SnakeApiObject) -> typing.Tuple[
     typing.List[Point],
