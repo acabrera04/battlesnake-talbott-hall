@@ -561,7 +561,7 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
             
             if health < STARVING_HEALTH_THRESHOLD:
                 effective_food_weight = STARVING_FOOD_WEIGHT
-            if best_food_score == ADJACENT_FOOD_DISTANCE:
+            if nearest_food_distance == ADJACENT_FOOD_DISTANCE:
                 effective_food_weight+= ADJACENT_FOOD_BONUS
             moves[d] += int(effective_food_weight * (health - nearest_food_distance))
 
