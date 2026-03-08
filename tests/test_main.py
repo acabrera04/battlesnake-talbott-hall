@@ -29,6 +29,10 @@ from main import move as our_move
 OUR_SNAKE_NAME = "talbott-hall"  # fallback; auto-detected per file
 GAME_FILES_DIR = os.path.join(os.path.dirname(__file__), "test_files")
 
+# Set to a turn number to drop into pdb at that turn, e.g. DEBUG_TURN = 42
+# Run with: pytest tests/ -v -s -k "<filename>" --pdb
+DEBUG_TURN: typing.Optional[int] = None
+
 
 def load_game_frames(path: str) -> typing.List[dict]:
     """Load frames from an NDJSON game recording where our snake is alive.
@@ -426,6 +430,8 @@ class TestGameReplay:
 
         timings: typing.List[float] = []
         for frame in frames:
+            if DEBUG_TURN is not None and frame["turn"] == DEBUG_TURN:
+                breakpoint()  # inspect `frame` then `s` to step into our_move()
             buf = io.StringIO()
             t0 = time.perf_counter()
             with contextlib.redirect_stdout(buf):
