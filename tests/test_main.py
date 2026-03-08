@@ -26,17 +26,19 @@ from main import move as our_move
 # Game replay loader
 # ---------------------------------------------------------------------------
 
-OUR_SNAKE_NAME = "talbott-hall"
+OUR_SNAKE_NAME = "talbott-hall"  # fallback; auto-detected per file
 GAME_FILES_DIR = os.path.join(os.path.dirname(__file__), "test_files")
 
 
 def load_game_frames(path: str) -> typing.List[dict]:
     """Load frames from an NDJSON game recording where our snake is alive.
 
-    Each frame is a complete game state dict with ``you`` set to our snake,
-    ready to be passed directly to ``move()``.
+    The snake is identified by the ``you`` field on the first turn-0 frame,
+    then tracked by id for the remainder of the game.
+
+    Each returned frame has ``you`` set to our snake, ready to pass to ``move()``.
     """
-    frames = []
+    raw_frames = []
     with open(path) as f:
         for line in f:
             line = line.strip()
@@ -44,14 +46,30 @@ def load_game_frames(path: str) -> typing.List[dict]:
                 continue
             state = json.loads(line)
             if "turn" not in state:
-                continue  # first line is bare game metadata
-            our_snake = next(
-                (s for s in state["board"]["snakes"] if s["name"] == OUR_SNAKE_NAME),
-                None,
-            )
-            if our_snake is None:
-                continue  # our snake has been eliminated
-            frames.append({**state, "you": our_snake})
+                continue  # bare game metadata line
+            raw_frames.append(state)
+
+    if not raw_frames:
+        return []
+
+    # Identify our snake from the you.id on the earliest frame that has it.
+    our_id: typing.Optional[str] = None
+    for state in raw_frames:
+        if state.get("you", {}).get("id"):
+            our_id = state["you"]["id"]
+            break
+    if our_id is None:
+        return []
+
+    frames = []
+    for state in raw_frames:
+        our_snake = next(
+            (s for s in state["board"]["snakes"] if s["id"] == our_id),
+            None,
+        )
+        if our_snake is None:
+            continue  # our snake has been eliminated
+        frames.append({**state, "you": our_snake})
     return frames
 
 
