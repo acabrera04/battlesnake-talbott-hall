@@ -43,11 +43,11 @@ TAIL_CHASE_RANGE = 10
 TAIL_CHASE_BASE_WEIGHT = 5
 TAIL_CHASE_LENGTH_SCALE = 0.2
 
-ENEMY_AVOIDANCE_RANGE = 3
-ENEMY_AVOIDANCE_WEIGHT = 4
+ENEMY_AVOIDANCE_RANGE = 3 # 3
+ENEMY_AVOIDANCE_WEIGHT = 4 # 4
 
 AGGRESSION_RANGE = 4
-AGGRESSION_CHASE_WEIGHT = 6
+AGGRESSION_CHASE_WEIGHT = 6 # 6
 
 HEAD_TO_HEAD_PENALTY = 10000
 SMALLER_HEAD_TO_HEAD_BONUS = 50
@@ -63,7 +63,7 @@ DEEP_LOOKAHEAD_WEIGHT = 20
 FLOOD_FILL_TRAP_PENALTY = 3000000
 FLOOD_FILL_TIGHT_PENALTY = 500
 
-CENTER_PREFERENCE_WEIGHT = 4
+CENTER_PREFERENCE_WEIGHT = 4 # 4
 CUTOFF_BONUS_WEIGHT = 8
 CUTOFF_SPACE_SAMPLE = 30
 CONTESTED_FOOD_DISCOUNT = 0.3
@@ -510,10 +510,18 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
 
             # avoid growth-inducing food when we're already long and healthy to reduce risk of self-trapping
             # this is a linear penalty based on how much we're over the length threshold and how close we are to starving
+            
             effective_food_weight = max(
                 0.0,
                 food_weight - (OVERGROWN_FOOD_AVOID_WEIGHT * excess_length * hunger_safe_ratio),
             )
+
+            # if we are being length-mogged in a 1v1, eliminate this penalty 
+            if len(all_enemy_heads) == 1 and  (len(game_state['board']['snakes'][0]['body']) >= game_state['you']['length']):
+                print(f"getting length mogged")
+                effective_food_weight = 10
+
+
             moves[d] += int(effective_food_weight * (health - nearest_food_distance))
 
         # chase tail to encourage circular movement and avoid self-trapping
