@@ -1,0 +1,31 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "pytest: all games",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pytest",
+            "args": ["tests/", "-v", "-s"],
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "justMyCode": true
+        },
+        {
+            "name": "pytest: one game (set PYTEST_K)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pytest",
+            "args": ["tests/", "-v", "-s", "-k", "${input:filenameFilter}"],
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "justMyCode": true
+        }
+    ],
+    "inputs": [
+        {
+            "id": "filenameFilter",
+            "type": "promptString",
+            "description": "Part of the game filename to match (e.g. talbott-goat_2026-03-07)",
+            "default": ""
+        }
+    ]
+}
