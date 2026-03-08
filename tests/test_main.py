@@ -31,7 +31,7 @@ GAME_FILES_DIR = os.path.join(os.path.dirname(__file__), "test_files")
 
 # Set to a turn number to drop into pdb at that turn, e.g. DEBUG_TURN = 42
 # Run with: pytest tests/ -v -s -k "<filename>" --pdb
-DEBUG_TURN: typing.Optional[int] = 162
+DEBUG_TURN: typing.Optional[int] = 63
 
 
 def load_game_frames(path: str) -> typing.List[dict]:
