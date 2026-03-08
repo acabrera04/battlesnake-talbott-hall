@@ -143,6 +143,15 @@ def build_board(game_state: SnakeApiObject) -> typing.Tuple[
     can_kill: typing.Set[Point] = set()
     occupied: typing.Set[Point] = set()
 
+
+    for i, segment in enumerate(game_state['you']['body']): 
+        
+        eaten = len(game_state['you']['body']) > 2 and text_to_tuple(game_state['you']['body'][-1]) == text_to_tuple(game_state['you']['body'][-2]) 
+
+        if i == len(game_state['you']['body']) - 1 and not eaten: # skip tail if we didn't just eat
+            continue
+        occupied.add(text_to_tuple(segment))
+
     for snake in game_state['board']['snakes']:
 
         if snake['id'] == game_state['you']['id']:
@@ -170,7 +179,7 @@ def build_board(game_state: SnakeApiObject) -> typing.Tuple[
                 if in_bounds(m, board_width, board_height):
                     if m in occupied: # ignore our own head
                         continue
-                    elif enemy_len >= self_length:
+                    elif enemy_len > self_length: # changed >= to >, trying to be aggressive
                         can_die.add(m)
                     else:
                         can_kill.add(m)
@@ -212,7 +221,7 @@ def get_enemy_targets(game_state: SnakeApiObject) -> typing.Tuple[typing.List[Po
         enemy_head = text_to_tuple(snake['head'])
         all_enemy_heads.append(enemy_head)
 
-        if len(snake['body']) >= self_length:
+        if len(snake['body']) > self_length: # changed >= to >, trying to be aggressive
             for segment in snake['body']:
                 threat_positions.append(text_to_tuple(segment))
         else:
@@ -370,7 +379,7 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
             if in_bounds(square, board_width, board_height):
                 if is_smaller:
                     killable_head_collision_squares.add(square)
-                else:
+                else: # else
                     dangerous_head_collision_squares.add(square)
     enemy_head_collision_squares = dangerous_head_collision_squares | killable_head_collision_squares
 
@@ -417,6 +426,10 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
         # avoid risky head-to-head zones against equal/larger snakes
         if new_head in can_die:
             moves[d] -= DANGER_ZONE_PENALTY
+
+        # FUCK SOME SHIT UP
+        if new_head in can_kill:
+            moves[d] += 1000    
 
         # avoid direct head-to-head squares against equal/larger snakes
         if new_head in dangerous_head_collision_squares:
@@ -514,6 +527,14 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
                 0.0,
                 food_weight - (OVERGROWN_FOOD_AVOID_WEIGHT * excess_length * hunger_safe_ratio),
             )
+
+            if len(all_enemy_heads) == 1:
+                if (game_state['you']['length'] == game_state['board']['snakes'][0]['length']):
+                    effective_food_weight = 25
+                elif (game_state['you']['length'] < game_state['board']['snakes'][0]['length']):
+                    effective_food_weight = 30
+            
+
             moves[d] += int(effective_food_weight * (health - nearest_food_distance))
 
         # chase tail to encourage circular movement and avoid self-trapping
