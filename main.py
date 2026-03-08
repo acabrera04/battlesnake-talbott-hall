@@ -536,13 +536,13 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
 
             if len(all_enemy_heads) == 1:
                 if (game_state['you']['length'] == game_state['board']['snakes'][0]['length']):
-                    effective_food_weight = 15
+                    effective_food_weight = 2
                 elif (game_state['you']['length'] < game_state['board']['snakes'][0]['length']):
-                    effective_food_weight = 30
+                    effective_food_weight = 25
                 else:
                     effective_food_weight = max(
-                    0.0,
-                    food_weight - (OVERGROWN_FOOD_AVOID_WEIGHT * excess_length * hunger_safe_ratio),
+                        0.0,
+                        food_weight - (OVERGROWN_FOOD_AVOID_WEIGHT * excess_length * hunger_safe_ratio),
                     )
             
 
