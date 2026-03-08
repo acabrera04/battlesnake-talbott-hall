@@ -425,10 +425,12 @@ class TestGameReplay:
             game_name = os.path.basename(game_file)
             print(f"\n=== {game_name} ({len(timings)} moves) ===")
             for frame, ms in zip(frames, timings):
-                print(f"  turn {frame['turn']:4d}: {ms:7.2f}ms")
+                if ms >=500:
+                    print(f"  !!!!!turn {frame['turn']:4d}: {ms:7.2f}ms")
             print(f"  ---")
             print(f"  average : {avg_ms:.2f}ms")
             print(f"  max     : {max_ms:.2f}ms")
+            print(f"  # of moves : {len(timings)}")
 
         assert avg_ms < 500, (
             f"Average move time {avg_ms:.1f}ms exceeds the 500ms timeout."
