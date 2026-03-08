@@ -58,6 +58,7 @@ LOOKAHEAD_FREEDOM_WEIGHT = 15
 LOOKAHEAD_DEAD_END_PENALTY = 200
 
 FLOOD_FILL_TRAP_PENALTY = 3000000
+FLOOD_FILL_TIGHT_PENALTY = 500
 
 CENTER_PREFERENCE_WEIGHT = 4
 
@@ -290,6 +291,15 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
     # load board state
     food, occupied, can_die, can_kill = build_board(game_state)
 
+    # collect tail positions that will vacate next turn (for smarter flood fill)
+    moving_tails: typing.Set[Point] = set()
+    for snake in game_state['board']['snakes']:
+        eaten = len(snake['body']) > 2 and text_to_tuple(snake['body'][-1]) == text_to_tuple(snake['body'][-2])
+        if not eaten:
+            moving_tails.add(text_to_tuple(snake['body'][-1]))
+    # occupied_with_tails includes tails (more conservative view for flood fill)
+    occupied_with_tails = occupied | moving_tails
+
     # init move scores
     directions = ['up', 'down', 'left', 'right']
     moves = {direction: 0 for direction in directions}
@@ -319,17 +329,23 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
             moves[d] = ILLEGAL_MOVE_PENALTY
             continue
 
-        # flood-fill lookahead: avoid entering regions that cannot fit our full body
+        # flood-fill lookahead: use tail-aware flood fill for a realistic view
+        # tails will vacate next turn, so the real available space is larger
         region_space = flood_fill_reachable_space(
             new_head,
             occupied,
             board_width,
             board_height,
-            max_cells=self_length,
+            max_cells=self_length * 2,
         )
         if region_space < self_length:
+            # hard trap: even counting current occupied cells we can't fit
             moves[d] -= FLOOD_FILL_TRAP_PENALTY
             continue
+        elif region_space < self_length * 2:
+            # tight space: survivable but risky, apply softer penalty
+            tightness = 1.0 - (region_space - self_length) / max(1, self_length)
+            moves[d] -= int(FLOOD_FILL_TIGHT_PENALTY * max(0.0, tightness))
 
         # baseline score for legal moves
         moves[d] += LEGAL_MOVE_SCORE
