@@ -57,6 +57,8 @@ BODY_BLOCK_STANDOFF_BONUS = 30
 
 LOOKAHEAD_FREEDOM_WEIGHT = 15
 LOOKAHEAD_DEAD_END_PENALTY = 200
+DEEP_LOOKAHEAD_DEPTH = 3
+DEEP_LOOKAHEAD_WEIGHT = 20
 
 FLOOD_FILL_TRAP_PENALTY = 3000000
 FLOOD_FILL_TIGHT_PENALTY = 500
@@ -286,6 +288,54 @@ def distance_to_board_center(point: Point, width: int, height: int) -> int:
         for center_y in center_y_candidates
     )
 
+def deep_lookahead_score(
+    head: Point,
+    occupied: typing.Set[Point],
+    enemy_heads: typing.List[Point],
+    width: int,
+    height: int,
+    depth: int,
+) -> float:
+    """Recursively score a position by counting average safe moves at each depth.
+
+    At each step, we simulate all enemy heads moving toward our head (greedy
+    chase) and update the occupied set accordingly.  The score is the average
+    number of safe follow-up moves across the tree, discounted by depth.
+    """
+    if depth <= 0:
+        return 0.0
+
+    legal_moves: typing.List[Point] = []
+    for m in moveset(head):
+        if in_bounds(m, width, height) and m not in occupied:
+            legal_moves.append(m)
+
+    if not legal_moves:
+        return -1.0  # dead end
+
+    # simulate enemy heads moving one step toward us (greedy)
+    new_enemy_heads: typing.List[Point] = []
+    new_occupied = set(occupied)
+    new_occupied.add(head)
+    for eh in enemy_heads:
+        best_move = eh
+        best_dist = abs(eh[0] - head[0]) + abs(eh[1] - head[1])
+        for em in moveset(eh):
+            if in_bounds(em, width, height) and em not in new_occupied:
+                d = abs(em[0] - head[0]) + abs(em[1] - head[1])
+                if d < best_dist:
+                    best_dist = d
+                    best_move = em
+        new_enemy_heads.append(best_move)
+        new_occupied.add(best_move)
+
+    total = 0.0
+    for m in legal_moves:
+        child_score = deep_lookahead_score(m, new_occupied, new_enemy_heads, width, height, depth - 1)
+        total += 1.0 + child_score * 0.5  # 1 point for surviving + discounted future
+    return total / len(legal_moves)
+
+
 # move is called on every turn and returns your next move
 # Valid moves are "up", "down", "left", or "right"
 # See https://docs.battlesnake.com/api/example-move for available data
@@ -419,6 +469,12 @@ def move(game_state: SnakeApiObject) -> typing.Dict[str, str]:
         moves[d] += followup_options * LOOKAHEAD_FREEDOM_WEIGHT
         if followup_options == 0:
             moves[d] -= LOOKAHEAD_DEAD_END_PENALTY
+
+        # multi-step lookahead: simulate moves and enemy responses
+        deep_score = deep_lookahead_score(
+            new_head, occupied, all_enemy_heads, board_width, board_height, DEEP_LOOKAHEAD_DEPTH,
+        )
+        moves[d] += int(deep_score * DEEP_LOOKAHEAD_WEIGHT)
 
         # prefer moves that get closer to the nearest food
         if food:
